@@ -764,7 +764,7 @@ async function renderAdmin(){
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const [{data:pending},{data:active}]=await Promise.all([
     db.from('profiles').select('*').eq('status','pending'),
-    db.from('profiles').select('*').eq('status','active').neq('role','admin').order('name')
+    db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name')
   ]);
   let h='';
   if(pending&&pending.length){
