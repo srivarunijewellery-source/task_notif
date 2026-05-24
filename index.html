@@ -247,8 +247,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     <div id="complete-task-title" style="font-size:14px;color:var(--text2);margin-bottom:14px;font-weight:500;line-height:1.4"></div>
     <div class="field"><label>Note (optional)</label><textarea id="complete-note" placeholder="Add a note..."></textarea></div>
     <div class="field"><label>Photo proof (optional)</label>
-      <div class="file-drop" id="photo-drop"><div style="font-size:28px">📷</div><p>Tap to capture or upload</p></div>
-      <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none">
+      <div class="file-drop" id="photo-drop">
+        <div style="font-size:28px">📷</div>
+        <p>Tap to choose photo</p>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+          <button type="button" class="btn btn-ghost btn-xs" id="photo-camera-btn">📸 Camera</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="photo-gallery-btn">🖼 Gallery</button>
+        </div>
+      </div>
+      <input type="file" id="photo-input-camera" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="photo-input" accept="image/*" style="display:none">
       <div id="photo-preview-wrap" style="display:none">
         <div class="file-preview"><img id="photo-preview" src="" alt=""></div>
         <button class="btn btn-ghost btn-sm btn-full" id="remove-photo-btn" style="margin-top:7px">✕ Remove</button>
@@ -261,9 +269,17 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   </div>
 </div>
 <div class="modal-overlay" id="add-task-modal">
-  <div class="modal"><div class="modal-handle"></div><div class="modal-title">Add Task</div>
+  <div class="modal"><div class="modal-handle"></div>
+    <div class="modal-title" id="add-task-modal-title">Add Task</div>
+    <input type="hidden" id="edit-task-id" value="">
     <div class="field"><label>Title *</label><input type="text" id="new-task-title" placeholder="What needs to be done?"></div>
     <div class="field"><label>Description</label><textarea id="new-task-desc" placeholder="Optional details..." style="min-height:60px"></textarea></div>
+    <div class="field"><label>Category</label>
+      <div style="display:flex;gap:6px">
+        <select id="new-task-category" style="flex:1"><option value="">No category</option></select>
+        <button type="button" class="btn btn-ghost btn-sm" id="manage-cats-btn" style="padding:0 10px;font-size:18px" title="Manage categories">⚙</button>
+      </div>
+    </div>
     <div class="field"><label>Assign To *</label><select id="new-task-assignee"><option value="">Select manager...</option></select></div>
     <div class="field"><label>Type</label>
       <select id="new-task-type"><option value="onetime">One-time (specific day)</option><option value="recurring">Recurring (every day)</option></select>
@@ -276,6 +292,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
       <button class="btn btn-ghost" style="flex:1" id="add-task-cancel-btn">Cancel</button>
       <button class="btn btn-primary" style="flex:1" id="add-task-submit-btn">Add Task</button>
     </div>
+  </div>
+</div>
+<!-- MANAGE CATEGORIES MODAL -->
+<div class="modal-overlay" id="cats-modal">
+  <div class="modal"><div class="modal-handle"></div>
+    <div class="modal-title">Manage Categories</div>
+    <div id="cats-list" style="margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" id="new-cat-input" placeholder="New category name..." style="flex:1;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-family:var(--font);font-size:14px;outline:none;color:var(--text)">
+      <button class="btn btn-primary" id="add-cat-btn">Add</button>
+    </div>
+    <button class="btn btn-ghost btn-full" style="margin-top:12px" id="cats-close-btn">Done</button>
   </div>
 </div>
 <div class="modal-overlay" id="add-staff-modal">
@@ -303,6 +331,8 @@ const db=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 let currentUser=null,currentProfile=null,taskDate=new Date(),attDate=new Date(),completingTaskId=null,photoDataURL=null,managers=[],staff=[];
 let attPolicy={weekoff:'1_per_week',weekend_penalty:true};
+let attDatedCache=[];
+let taskCategories=[];
 
 function dbg(msg,data){
   const el=document.getElementById('debug-log');
@@ -403,6 +433,7 @@ async function initApp(user){
   await loadStaff();
   await loadManagers();
   await loadAttPolicy();
+  await loadCategories();
   if(p.role==='admin')await carryForward();
   renderDashboard();
   initTaskDate();
@@ -434,7 +465,7 @@ async function carryForward(){
   dbg('Carried forward',data.length);
 }
 
-async function loadStaff(){const {data,error}=await db.from('staff').select('*').eq('active',true).order('name');dbg('loadStaff',{count:data?.length,error});staff=data||[];}
+async function loadStaff(){const {data,error}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');dbg('loadStaff',{count:data?.length,error});staff=data||[];}
 async function loadManagers(){
   const {data,error}=await db.from('profiles').select('id,name,email,role,status').eq('status','active').in('role',['admin','manager']);
   dbg('loadManagers',{count:data?.length,error:error?.message,data:data});
@@ -447,6 +478,19 @@ async function loadManagers(){
     managers=data;
   }
   dbg('Final managers list',managers.map(m=>({name:m.name,role:m.role})));
+}
+
+// CATEGORIES
+async function loadCategories(){
+  const {data,error}=await db.from('task_categories').select('*').order('name');
+  dbg('loadCategories',{count:data?.length,error:error?.message});
+  taskCategories=data||[];
+}
+function populateCategorySelect(selId,selectedVal){
+  const sel=document.getElementById(selId);
+  if(!sel)return;
+  sel.innerHTML='<option value="">No category</option>'
+    +taskCategories.map(c=>'<option value="'+c.id+'"'+(selectedVal===c.id?' selected':'')+'>'+esc(c.name)+'</option>').join('');
 }
 
 // ATTENDANCE POLICY
@@ -541,6 +585,7 @@ function taskCard(t,isDone,comp,ds){
         <div class="task-title ${isDone?'done':''}">${esc(t.title)}</div>
         <div class="task-meta">
           <span class="badge ${t.task_type==='recurring'?'badge-recurring':'badge-onetime'}">${t.task_type==='recurring'?'🔁 Daily':'📅 Once'}</span>
+          ${t.category_id?(()=>{const cat=taskCategories.find(c=>c.id===t.category_id);return cat?`<span class="badge" style="background:${cat.color||'var(--surface3)'};color:${cat.text_color||'var(--text2)'}">🏷 ${esc(cat.name)}</span>`:'';})():''}
           ${t.priority!=='normal'?`<span class="badge badge-${t.priority}">${t.priority==='urgent'?'🔴':'🟡'} ${t.priority}</span>`:''}
           ${t.carried_forward?'<span class="badge badge-carried">↩ Carried</span>':''}
           ${isDone?'<span class="badge badge-done">✓ Done</span>':''}
@@ -549,8 +594,8 @@ function taskCard(t,isDone,comp,ds){
         ${t.description?`<div style="font-size:12px;color:var(--text3);margin-top:5px;line-height:1.4">${esc(t.description)}</div>`:''}
       </div>
     </div>`;
-  if(!isDone&&isOwn)h+=`<div class="task-actions"><button class="btn btn-success btn-sm" data-oc="${t.id}|${esc(t.title)}">✓ Mark Complete</button>${isAdmin?`<button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button>`:''}</div>`;
-  else if(!isDone&&isAdmin)h+=`<div class="task-actions"><button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button></div>`;
+  if(!isDone&&isOwn)h+=`<div class="task-actions"><button class="btn btn-success btn-sm" data-oc="${t.id}|${esc(t.title)}">✓ Mark Complete</button>${isAdmin?`<button class="btn btn-ghost btn-xs" data-edit-task="${t.id}">✏ Edit</button><button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button>`:''}</div>`;
+  else if(!isDone&&isAdmin&&!isOwn)h+=`<div class="task-actions"><button class="btn btn-ghost btn-xs" data-edit-task="${t.id}">✏ Edit</button><button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button></div>`;
   else if(isDone&&comp)h+=`<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="${comp.id}">👁 Details</button>${isAdmin?`<button class="btn btn-danger btn-xs" data-undo="${comp.id}">Undo</button>`:''}</div>`;
   return h+'</div>';
 }
@@ -560,6 +605,13 @@ function wireCards(container,ds){
     el.addEventListener('click',()=>{const [id,title]=el.getAttribute('data-oc').split('|');openComplete(id,title);});
   });
   container.querySelectorAll('[data-del]').forEach(el=>{el.addEventListener('click',()=>deleteTask(el.getAttribute('data-del')));});
+  container.querySelectorAll('[data-edit-task]').forEach(el=>{
+    el.addEventListener('click',async()=>{
+      const id=el.getAttribute('data-edit-task');
+      const {data:t}=await db.from('tasks').select('*').eq('id',id).single();
+      if(t)openAddTask(t);
+    });
+  });
   container.querySelectorAll('[data-vc]').forEach(el=>{el.addEventListener('click',()=>viewComp(el.getAttribute('data-vc')));});
   container.querySelectorAll('[data-undo]').forEach(el=>{
     el.addEventListener('click',async()=>{await db.from('task_completions').delete().eq('id',el.getAttribute('data-undo'));toast('Undone','info');loadTasksList();renderDashboard();});
@@ -607,15 +659,21 @@ async function viewComp(id){
   document.getElementById('view-comp-body').innerHTML=h;
   openModal('view-comp-modal');
 }
-function openAddTask(){
-  document.getElementById('new-task-title').value='';
-  document.getElementById('new-task-desc').value='';
-  document.getElementById('new-task-date').value=fmt(taskDate||new Date());
-  document.getElementById('new-task-type').value='onetime';
-  document.getElementById('new-task-priority').value='normal';
-  document.getElementById('new-task-date-field').style.display='';
+function openAddTask(task){
+  // task = null for new, task object for edit
+  const isEdit=!!task;
+  document.getElementById('add-task-modal-title').textContent=isEdit?'Edit Task':'Add Task';
+  document.getElementById('add-task-submit-btn').textContent=isEdit?'Save Changes':'Add Task';
+  document.getElementById('edit-task-id').value=isEdit?task.id:'';
+  document.getElementById('new-task-title').value=isEdit?task.title:'';
+  document.getElementById('new-task-desc').value=isEdit?(task.description||''):'';
+  document.getElementById('new-task-date').value=isEdit?(task.scheduled_date||fmt(taskDate||new Date())):fmt(taskDate||new Date());
+  document.getElementById('new-task-type').value=isEdit?task.task_type:'onetime';
+  document.getElementById('new-task-priority').value=isEdit?task.priority:'normal';
+  document.getElementById('new-task-date-field').style.display=(isEdit?task.task_type:'onetime')==='recurring'?'none':'';
   const sel=document.getElementById('new-task-assignee');
-  sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+  sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>'<option value="'+m.id+'"'+(isEdit&&task.assigned_to===m.id?' selected':'')+'>'+esc(m.name)+'</option>').join('');
+  populateCategorySelect('new-task-category', isEdit?task.category_id:null);
   openModal('add-task-modal');
 }
 async function submitNewTask(){
@@ -625,15 +683,26 @@ async function submitNewTask(){
   const type=document.getElementById('new-task-type').value;
   const date=document.getElementById('new-task-date').value;
   const priority=document.getElementById('new-task-priority').value;
+  const catId=document.getElementById('new-task-category').value||null;
+  const editId=document.getElementById('edit-task-id').value;
+  const isEdit=!!editId;
   if(!title){toast('Task title required','error');return;}
   if(!assignee){toast('Please assign to a manager','error');return;}
   if(type==='onetime'&&!date){toast('Date required for one-time tasks','error');return;}
   setBtnLoading('add-task-submit-btn',true);
-  const {error}=await db.from('tasks').insert({title,description:desc||null,assigned_to:assignee,task_type:type,scheduled_date:type==='onetime'?date:null,priority,status:'pending',created_by:currentUser.id,carried_forward:false});
+  const payload={title,description:desc||null,assigned_to:assignee,task_type:type,
+    scheduled_date:type==='onetime'?date:null,priority,category_id:catId};
+  let error;
+  if(isEdit){
+    ({error}=await db.from('tasks').update(payload).eq('id',editId));
+  } else {
+    ({error}=await db.from('tasks').insert({...payload,status:'pending',created_by:currentUser.id,carried_forward:false}));
+    if(!error)await addNotif(assignee,'New task: "'+title+'"','task_assigned');
+  }
   setBtnLoading('add-task-submit-btn',false);
   if(error){toast(error.message,'error');return;}
-  await addNotif(assignee,'New task: "'+title+'"','task_assigned');
-  toast('Task added!','success');closeModal('add-task-modal');loadTasksList();renderDashboard();
+  toast(isEdit?'Task updated!':'Task added!','success');
+  closeModal('add-task-modal');loadTasksList();renderDashboard();
 }
 async function deleteTask(id){
   if(!confirm('Delete this task?'))return;
@@ -772,8 +841,9 @@ async function loadSummary(year,month){
     }
     const allowedOffs=getAllowedOffs(attPolicy,dim,weekdaysInMonth);
 
-    // Get all dated attendance records for penalty calc
-    const {data:attDated}=await db.from('attendance').select('staff_id,status,date').gte('date',sd).lte('date',es);
+    // Get all dated attendance records for penalty calc (also used by calendar click)
+    attDatedCache=await db.from('attendance').select('staff_id,status,date').gte('date',sd).lte('date',es).then(r=>r.data||[]);
+    const attDated=attDatedCache;
 
     h+=`<div class="section-header" style="margin-top:8px">
       <span class="section-title">Attendance — ${new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span>
@@ -781,12 +851,15 @@ async function loadSummary(year,month){
     <div class="card" style="margin-bottom:12px;background:var(--accent-light);border-color:rgba(193,123,63,0.2)">
       <div style="font-size:12px;font-weight:600;color:var(--accent2);margin-bottom:6px">📋 Active Policy</div>
       <div style="font-size:12px;color:var(--text2);line-height:1.7">
-        • Week-off allowance: <strong>${{none:'None','1_per_month':'1 per month','1_per_2weeks':'1 per 2 weeks','1_per_week':'1 per week'}[attPolicy.weekoff]||attPolicy.weekoff}</strong> (${allowedOffs} offs this month)<br>
+        • Default week-off: <strong>${{none:'None','1_per_month':'1 per month','1_per_2weeks':'1 per 2 weeks','1_per_week':'1 per week'}[attPolicy.weekoff]||attPolicy.weekoff}</strong> (overrideable per staff)<br>
         • Weekend absence: <strong>${attPolicy.weekend_penalty?'2-day penalty':'Normal (1 day)'}</strong>
       </div>
     </div>`;
     h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--teal)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Penalty</th><th>Net</th></tr></thead><tbody>';
     staff.forEach(s=>{
+      // Use staff's own weekoff setting, fall back to global policy
+      const staffWeekoff=s.weekoff_allowance||attPolicy.weekoff||'1_per_week';
+      const allowedOffs=getAllowedOffs({weekoff:staffWeekoff},dim,weekdaysInMonth);
       const sa=(att||[]).filter(a=>a.staff_id===s.id);
       const P=sa.filter(a=>a.status==='P').length;
       const A=sa.filter(a=>a.status==='A').length;
@@ -822,16 +895,66 @@ async function loadSummary(year,month){
     h+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6;padding:0 2px">
       <strong>How it's calculated:</strong> Attendance % = Days present ÷ (Working days − Allowed offs). 
       ${attPolicy.weekend_penalty?'Weekend absences count double. ':''}
-      Allowed offs this month: ${allowedOffs}.
+      Allowed offs vary per staff based on their individual setting.
     </div>`;
   }
   el.innerHTML=h;
   // Wire staff row clicks for calendar view
   el.querySelectorAll('.staff-cal-row').forEach(row=>{
     row.addEventListener('click',()=>{
-      openStaffCalendar(row.dataset.staffId, row.dataset.staffName, year, month, attDated||[]);
+      openStaffCalendar(row.dataset.staffId, row.dataset.staffName, year, month, attDatedCache||[]);
     });
   });
+}
+
+// CATEGORIES MANAGEMENT
+const CAT_COLORS=[
+  {bg:'#e8f4fd',text:'#1a6b9a',label:'Blue'},
+  {bg:'#edf7f5',text:'#2a7a6a',label:'Teal'},
+  {bg:'#fdf3e9',text:'#a5632a',label:'Amber'},
+  {bg:'#fdf8e6',text:'#9a7200',label:'Gold'},
+  {bg:'#fdf0ee',text:'#a03020',label:'Red'},
+  {bg:'#f3f0fd',text:'#5a3ab5',label:'Purple'},
+  {bg:'#f0f7e6',text:'#4a7a20',label:'Green'},
+  {bg:'#f5f4f0',text:'#6b6459',label:'Neutral'},
+];
+
+function renderCatsList(){
+  const el=document.getElementById('cats-list');
+  if(!el)return;
+  if(!taskCategories.length){
+    el.innerHTML='<div style="color:var(--text3);font-size:13px;text-align:center;padding:16px">No categories yet. Add one below.</div>';
+    return;
+  }
+  el.innerHTML=taskCategories.map(c=>{
+    const style='background:'+c.color+';color:'+c.text_color+';';
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+      +'<span class="badge" style="'+style+'flex:1;justify-content:flex-start;padding:7px 12px;font-size:13px">🏷 '+esc(c.name)+'</span>'
+      +'<button class="btn btn-danger btn-xs" data-del-cat="'+c.id+'">✕</button>'
+      +'</div>';
+  }).join('');
+  el.querySelectorAll('[data-del-cat]').forEach(b=>{
+    b.addEventListener('click',async()=>{
+      await db.from('task_categories').delete().eq('id',b.getAttribute('data-del-cat'));
+      await loadCategories();
+      renderCatsList();
+      toast('Category deleted','info');
+    });
+  });
+}
+
+async function addCategory(){
+  const inp=document.getElementById('new-cat-input');
+  const name=inp.value.trim();
+  if(!name){toast('Enter a category name','error');return;}
+  // Pick a color based on count
+  const col=CAT_COLORS[taskCategories.length%CAT_COLORS.length];
+  const {error}=await db.from('task_categories').insert({name,color:col.bg,text_color:col.text});
+  if(error){toast(error.message,'error');return;}
+  inp.value='';
+  await loadCategories();
+  renderCatsList();
+  toast('Category added!','success');
 }
 
 // NOTIFICATIONS
@@ -873,14 +996,32 @@ async function renderAdmin(){
   if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👥</div><div class="empty-text">No staff added yet.</div></div>';
   else h+=staff.map(s=>{
     const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
-    return '<div class="staff-row">'
+    const wkOpts=['none','1_per_month','1_per_2weeks','1_per_week'];
+    const wkLabels={'none':'No day off','1_per_month':'1/month','1_per_2weeks':'1/2 weeks','1_per_week':'1/week'};
+    const curWk=s.weekoff_allowance||attPolicy.weekoff||'1_per_week';
+    const wkSelect='<select class="staff-weekoff-sel" data-sid="'+s.id+'" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font);margin-top:3px;cursor:pointer">'
+      +wkOpts.map(o=>'<option value="'+o+'"'+(curWk===o?' selected':'')+'>'+wkLabels[o]+'</option>').join('')
+      +'</select>';
+    return '<div class="staff-row" style="flex-wrap:wrap;gap:8px">'
       +'<div class="staff-avatar">'+((s.name||'?')[0].toUpperCase())+'</div>'
-      +'<div style="flex:1"><div class="staff-name">'+esc(s.name)+'</div>'+roleTag+'</div>'
+      +'<div style="flex:1;min-width:120px"><div class="staff-name">'+esc(s.name)+'</div>'+roleTag
+      +'<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><span style="font-size:10px;color:var(--text3);font-weight:600">DAY OFF:</span>'+wkSelect+'</div>'
+      +'</div>'
       +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button>'
       +'</div>';
   }).join('');
   el.innerHTML=h;
 
+  // Wire weekoff per-staff selects
+  el.querySelectorAll('.staff-weekoff-sel').forEach(sel=>{
+    sel.addEventListener('change',async()=>{
+      const sid=sel.dataset.sid;
+      const val=sel.value;
+      await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);
+      await loadStaff();
+      toast('Day off allowance updated','success');
+    });
+  });
   // Wire buttons
   el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
@@ -1071,19 +1212,33 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchTab(t.dataset.tab)));
 
   // Complete modal
-  document.getElementById('photo-drop').addEventListener('click',()=>document.getElementById('photo-input').click());
-  document.getElementById('photo-input').addEventListener('change',e=>{
-    const f=e.target.files[0];if(!f)return;
+  function handlePhotoFile(f){
+    if(!f)return;
     const r=new FileReader();
     r.onload=ev=>{photoDataURL=ev.target.result;document.getElementById('photo-preview').src=photoDataURL;document.getElementById('photo-preview-wrap').style.display='';document.getElementById('photo-drop').style.display='none';};
     r.readAsDataURL(f);
+  }
+  document.getElementById('photo-camera-btn').addEventListener('click',e=>{e.stopPropagation();document.getElementById('photo-input-camera').click();});
+  document.getElementById('photo-gallery-btn').addEventListener('click',e=>{e.stopPropagation();document.getElementById('photo-input').click();});
+  document.getElementById('photo-drop').addEventListener('click',()=>document.getElementById('photo-input').click());
+  document.getElementById('photo-input').addEventListener('change',e=>{handlePhotoFile(e.target.files[0]);});
+  document.getElementById('photo-input-camera').addEventListener('change',e=>{handlePhotoFile(e.target.files[0]);});
+  document.getElementById('remove-photo-btn').addEventListener('click',()=>{
+    photoDataURL=null;
+    document.getElementById('photo-input').value='';
+    document.getElementById('photo-input-camera').value='';
+    document.getElementById('photo-preview-wrap').style.display='none';
+    document.getElementById('photo-drop').style.display='';
   });
-  document.getElementById('remove-photo-btn').addEventListener('click',()=>{photoDataURL=null;document.getElementById('photo-input').value='';document.getElementById('photo-preview-wrap').style.display='none';document.getElementById('photo-drop').style.display='';});
   document.getElementById('complete-cancel-btn').addEventListener('click',()=>closeModal('complete-modal'));
   document.getElementById('complete-submit-btn').addEventListener('click',submitComplete);
 
   // Add task modal
   document.getElementById('new-task-type').addEventListener('change',function(){document.getElementById('new-task-date-field').style.display=this.value==='recurring'?'none':'';});
+  document.getElementById('manage-cats-btn').addEventListener('click',()=>{renderCatsList();openModal('cats-modal');});
+  document.getElementById('cats-close-btn').addEventListener('click',()=>{closeModal('cats-modal');populateCategorySelect('new-task-category',document.getElementById('new-task-category').value);});
+  document.getElementById('add-cat-btn').addEventListener('click',addCategory);
+  document.getElementById('new-cat-input').addEventListener('keydown',e=>{if(e.key==='Enter')addCategory();});
   document.getElementById('add-task-cancel-btn').addEventListener('click',()=>closeModal('add-task-modal'));
   document.getElementById('add-task-submit-btn').addEventListener('click',submitNewTask);
 
