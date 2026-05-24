@@ -634,10 +634,21 @@ async function deleteTask(id){
 function initAttDate(){attDate=new Date();renderAttendance();}
 function renderAttendance(){
   const el=document.getElementById('page-attendance');
-  el.innerHTML=`<div class="date-nav"><button class="date-nav-btn" id="ap">‹</button><span class="date-label" id="adl">—</span><button class="date-today-btn" id="at">Today</button><button class="date-nav-btn" id="an">›</button></div><div id="att-list"></div>`;
+  const isAdmin=currentProfile.role==='admin';
+  el.innerHTML=`<div class="date-nav"><button class="date-nav-btn" id="ap">‹</button><span class="date-label" id="adl">—</span><button class="date-today-btn" id="at">Today</button><button class="date-nav-btn" id="an">›</button></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3)">${staff.length} Staff Members</span>
+    <button class="btn btn-primary btn-sm" id="att-add-staff-btn">+ Add Staff</button>
+  </div>
+  <div id="att-list"></div>`;
   document.getElementById('ap').addEventListener('click',()=>{attDate=new Date(+attDate-86400000);updADL();loadAttList();});
   document.getElementById('an').addEventListener('click',()=>{attDate=new Date(+attDate+86400000);updADL();loadAttList();});
   document.getElementById('at').addEventListener('click',()=>{attDate=new Date();updADL();loadAttList();});
+  document.getElementById('att-add-staff-btn').addEventListener('click',()=>{
+    document.getElementById('new-staff-name').value='';
+    document.getElementById('new-staff-role').value='';
+    openModal('add-staff-modal');
+  });
   updADL();loadAttList();
 }
 function updADL(){const e=document.getElementById('adl');if(e)e.textContent=fmtDisp(fmt(attDate));}
@@ -833,7 +844,10 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!name){toast('Name required','error');return;}
     const {error}=await db.from('staff').insert({name,role:role||null,active:true});
     if(error){toast(error.message,'error');return;}
-    toast('Staff added!','success');closeModal('add-staff-modal');await loadStaff();renderAdmin();
+    toast('Staff added!','success');closeModal('add-staff-modal');await loadStaff();
+    // Refresh whichever page is active
+    if(document.getElementById('page-admin').classList.contains('active'))renderAdmin();
+    if(document.getElementById('page-attendance').classList.contains('active'))renderAttendance();
   });
 
   // View comp close
