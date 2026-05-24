@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Varuni Task Manager</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -507,13 +508,13 @@
 // ========================
 // CONFIG — update these!
 // ========================
-const SUPABASE_URL = 'https://brtepaeqocjxmkinrwpg.supabase.co';
+const SUPABASE_URL = 'https://brtepaeqocjxmkinrwpg.db.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJydGVwYWVxb2NqeG1raW5yd3BnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NjY4NTgsImV4cCI6MjA2MDU0Mjg1OH0.ylMnMSMopcxBOujqxBPFMtgqhTiVkbGQGhVTsQgJWI0';
 
 // ========================
 // INIT
 // ========================
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
 let currentProfile = null;
@@ -619,8 +620,8 @@ async function doLogin() {
   dbg('doLogin() called', { email });
   if (!email || !pass) { toast('Enter email and password', 'error'); dbg('Missing email or password'); return; }
   setLoading('login-btn', true);
-  dbg('Calling supabase.auth.signInWithPassword...');
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+  dbg('Calling db.auth.signInWithPassword...');
+  const { data, error } = await db.auth.signInWithPassword({ email, password: pass });
   setLoading('login-btn', false);
   if (error) { toast(error.message, 'error'); dbg('Auth error', { message: error.message, status: error.status }); return; }
   dbg('Auth success', { userId: data.user?.id, email: data.user?.email });
@@ -634,18 +635,18 @@ async function doSignup() {
   if (!name || !email || !pass) { toast('Fill all fields', 'error'); return; }
   if (pass.length < 6) { toast('Password must be 6+ characters', 'error'); return; }
   setLoading('signup-btn', true);
-  const { data, error } = await supabase.auth.signUp({ email, password: pass, options: { data: { full_name: name } } });
+  const { data, error } = await db.auth.signUp({ email, password: pass, options: { data: { full_name: name } } });
   setLoading('signup-btn', false);
   if (error) { toast(error.message, 'error'); return; }
   if (data.user) {
-    await supabase.from('profiles').upsert({ id: data.user.id, email, full_name: name, role: 'pending', status: 'pending' });
+    await db.from('profiles').upsert({ id: data.user.id, email, full_name: name, role: 'pending', status: 'pending' });
     toast('Account created! Waiting for admin approval.', 'success');
     showLogin();
   }
 }
 
 async function doLogout() {
-  await supabase.auth.signOut();
+  await db.auth.signOut();
   location.reload();
 }
 
@@ -656,17 +657,17 @@ async function initApp(user) {
   currentUser = user;
   dbg('initApp() called', { userId: user.id, email: user.email });
   dbg('Fetching profile from profiles table...');
-  const { data: profile, error: profileErr } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  const { data: profile, error: profileErr } = await db.from('profiles').select('*').eq('id', user.id).single();
   dbg('Profile fetch result', { profile, error: profileErr });
   if (profileErr || !profile) {
     toast('Profile not found. If you just signed up, wait for approval.', 'error');
     dbg('Profile not found — signing out', { error: profileErr });
-    await supabase.auth.signOut();
+    await db.auth.signOut();
     return;
   }
   dbg('Profile found', { role: profile.role, status: profile.status });
-  if (profile.status === 'pending') { toast('Your account is pending admin approval.', 'error'); dbg('Status: pending — blocked'); await supabase.auth.signOut(); return; }
-  if (profile.status === 'blocked') { toast('Your account has been blocked. Contact admin.', 'error'); dbg('Status: blocked'); await supabase.auth.signOut(); return; }
+  if (profile.status === 'pending') { toast('Your account is pending admin approval.', 'error'); dbg('Status: pending — blocked'); await db.auth.signOut(); return; }
+  if (profile.status === 'blocked') { toast('Your account has been blocked. Contact admin.', 'error'); dbg('Status: blocked'); await db.auth.signOut(); return; }
   dbg('Profile OK — loading app...');
   currentProfile = profile;
   document.getElementById('auth-screen').style.display = 'none';
@@ -728,7 +729,7 @@ async function carryForwardTasks() {
   const today = fmt(new Date());
   const yesterday = fmt(new Date(Date.now() - 86400000));
   // Find one-time tasks from yesterday that are incomplete and not yet carried
-  const { data: overdue } = await supabase.from('tasks')
+  const { data: overdue } = await db.from('tasks')
     .select('*')
     .eq('task_type', 'onetime')
     .eq('status', 'pending')
@@ -736,7 +737,7 @@ async function carryForwardTasks() {
     .eq('carried_forward', false);
   if (!overdue || overdue.length === 0) return;
   for (const t of overdue) {
-    await supabase.from('tasks').update({ carried_forward: true, scheduled_date: today }).eq('id', t.id);
+    await db.from('tasks').update({ carried_forward: true, scheduled_date: today }).eq('id', t.id);
   }
   if (overdue.length > 0) {
     await addNotification('admin', `${overdue.length} task(s) carried forward to today`, 'carry_forward');
@@ -752,10 +753,10 @@ async function renderDashboard() {
   const isAdmin = currentProfile.role === 'admin';
 
   // Fetch today's tasks for current user (or all if admin)
-  let tq = supabase.from('tasks').select('*, task_completions(*)').eq('status', 'pending');
+  let tq = db.from('tasks').select('*, task_completions(*)').eq('status', 'pending');
   if (!isAdmin) tq = tq.eq('assigned_to', currentUser.id);
 
-  const { data: allTasks } = await supabase.from('tasks').select('*, task_completions(*)')
+  const { data: allTasks } = await db.from('tasks').select('*, task_completions(*)')
     .or(`scheduled_date.eq.${today},task_type.eq.recurring`);
 
   let todayTasks = (allTasks || []).filter(t => {
@@ -770,8 +771,8 @@ async function renderDashboard() {
   const pctColor = pct >= 80 ? 'green' : pct >= 50 ? 'gold' : 'red';
 
   // Attendance today
-  const { data: attToday } = await supabase.from('attendance').select('*').eq('date', today);
-  const { data: allStaff } = await supabase.from('staff').select('*').eq('active', true);
+  const { data: attToday } = await db.from('attendance').select('*').eq('date', today);
+  const { data: allStaff } = await db.from('staff').select('*').eq('active', true);
   const staffCount = (allStaff || []).length;
   const presentCount = (attToday || []).filter(a => a.status === 'P').length;
 
@@ -839,7 +840,7 @@ async function renderTasks() {
   const dateStr = fmt(taskDate);
 
   // Fetch tasks for this date: recurring always, onetime if scheduled_date matches
-  const { data: allTasks, error } = await supabase.from('tasks')
+  const { data: allTasks, error } = await db.from('tasks')
     .select('*, task_completions(*), profiles:assigned_to(full_name)')
     .order('priority', { ascending: false });
 
@@ -964,14 +965,14 @@ async function submitCompletion() {
     const blob = dataURLtoBlob(photoDataURL);
     const ext = blob.type.split('/')[1] || 'jpg';
     const path = `completions/${completingTaskId}/${dateStr}_${Date.now()}.${ext}`;
-    const { data: upData, error: upErr } = await supabase.storage.from('task-photos').upload(path, blob, { upsert: true });
+    const { data: upData, error: upErr } = await db.storage.from('task-photos').upload(path, blob, { upsert: true });
     if (!upErr) {
-      const { data: urlData } = supabase.storage.from('task-photos').getPublicUrl(path);
+      const { data: urlData } = db.storage.from('task-photos').getPublicUrl(path);
       photoUrl = urlData.publicUrl;
     }
   }
 
-  const { error } = await supabase.from('task_completions').insert({
+  const { error } = await db.from('task_completions').insert({
     task_id: completingTaskId,
     completed_by: currentUser.id,
     completed_date: dateStr,
@@ -986,9 +987,9 @@ async function submitCompletion() {
   }
 
   // Update task status if one-time
-  const { data: task } = await supabase.from('tasks').select('task_type, title, assigned_to').eq('id', completingTaskId).single();
+  const { data: task } = await db.from('tasks').select('task_type, title, assigned_to').eq('id', completingTaskId).single();
   if (task?.task_type === 'onetime') {
-    await supabase.from('tasks').update({ status: 'done' }).eq('id', completingTaskId);
+    await db.from('tasks').update({ status: 'done' }).eq('id', completingTaskId);
   }
 
   // Notify admin
@@ -1002,14 +1003,14 @@ async function submitCompletion() {
 }
 
 async function undoCompletion(compId) {
-  await supabase.from('task_completions').delete().eq('id', compId);
+  await db.from('task_completions').delete().eq('id', compId);
   toast('Completion undone', 'info');
   renderTasks();
   renderDashboard();
 }
 
 async function viewCompletion(compId) {
-  const { data: c } = await supabase.from('task_completions').select('*, profiles:completed_by(full_name)').eq('id', compId).single();
+  const { data: c } = await db.from('task_completions').select('*, profiles:completed_by(full_name)').eq('id', compId).single();
   if (!c) return;
   let html = `<div style="font-size:13px;color:var(--text2);margin-bottom:12px">Completed by <strong>${c.profiles?.full_name||'?'}</strong> on ${c.completed_date}</div>`;
   if (c.note) html += `<div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:13px;margin-bottom:12px">${escHtml(c.note)}</div>`;
@@ -1047,7 +1048,7 @@ async function submitNewTask() {
   if (!title) { toast('Task title is required', 'error'); return; }
   if (type === 'onetime' && !date) { toast('Date required for one-time tasks', 'error'); return; }
   setLoading('add-task-submit-btn', true);
-  const { error } = await supabase.from('tasks').insert({
+  const { error } = await db.from('tasks').insert({
     title, description: desc || null,
     assigned_to: assignee,
     task_type: type,
@@ -1068,8 +1069,8 @@ async function submitNewTask() {
 
 async function deleteTask(id) {
   if (!confirm('Delete this task?')) return;
-  await supabase.from('task_completions').delete().eq('task_id', id);
-  await supabase.from('tasks').delete().eq('id', id);
+  await db.from('task_completions').delete().eq('task_id', id);
+  await db.from('tasks').delete().eq('id', id);
   toast('Task deleted', 'info');
   renderTasks();
   renderDashboard();
@@ -1079,12 +1080,12 @@ async function deleteTask(id) {
 // ATTENDANCE
 // ========================
 async function loadStaff() {
-  const { data } = await supabase.from('staff').select('*').eq('active', true).order('name');
+  const { data } = await db.from('staff').select('*').eq('active', true).order('name');
   staff = data || [];
 }
 
 async function loadManagers() {
-  const { data } = await supabase.from('profiles').select('*').eq('role', 'manager').eq('status', 'active');
+  const { data } = await db.from('profiles').select('*').eq('role', 'manager').eq('status', 'active');
   managers = data || [];
 }
 
@@ -1121,7 +1122,7 @@ async function renderAttendance() {
     return;
   }
 
-  const { data: records } = await supabase.from('attendance').select('*').eq('date', dateStr);
+  const { data: records } = await db.from('attendance').select('*').eq('date', dateStr);
   const attMap = {};
   (records || []).forEach(r => attMap[r.staff_id] = r.status);
 
@@ -1169,14 +1170,14 @@ async function renderAttendance() {
 }
 
 async function setAtt(staffId, status, dateStr) {
-  await supabase.from('attendance').upsert({ staff_id: staffId, date: dateStr, status, marked_by: currentUser.id }, { onConflict: 'staff_id,date' });
+  await db.from('attendance').upsert({ staff_id: staffId, date: dateStr, status, marked_by: currentUser.id }, { onConflict: 'staff_id,date' });
   renderAttendance();
   if (dateStr === fmt(new Date())) renderDashboard();
 }
 
 async function markAllPresent(dateStr) {
   const upserts = staff.map(s => ({ staff_id: s.id, date: dateStr, status: 'P', marked_by: currentUser.id }));
-  await supabase.from('attendance').upsert(upserts, { onConflict: 'staff_id,date' });
+  await db.from('attendance').upsert(upserts, { onConflict: 'staff_id,date' });
   await addNotification('admin', `Attendance marked for ${dateStr}`, 'attendance');
   toast('All marked present!', 'success');
   renderAttendance();
@@ -1222,14 +1223,14 @@ async function loadSummaryMonth(year, month) {
   const daysInMonth = endDate.getDate();
 
   // Tasks for this month
-  const { data: completions } = await supabase.from('task_completions')
+  const { data: completions } = await db.from('task_completions')
     .select('*, profiles:completed_by(full_name)')
     .gte('completed_date', startDate).lte('completed_date', endStr);
 
-  const { data: tasks } = await supabase.from('tasks').select('*, profiles:assigned_to(full_name)');
+  const { data: tasks } = await db.from('tasks').select('*, profiles:assigned_to(full_name)');
 
   // Attendance for this month
-  const { data: attRecords } = await supabase.from('attendance')
+  const { data: attRecords } = await db.from('attendance')
     .select('*, staff(name)').gte('date', startDate).lte('date', endStr);
 
   // Manager task summary
@@ -1284,7 +1285,7 @@ async function loadSummaryMonth(year, month) {
 // ========================
 async function loadNotifications() {
   const el = document.getElementById('notifications-content');
-  const { data } = await supabase.from('task_notifications')
+  const { data } = await db.from('task_notifications')
     .select('*').eq('user_id', currentUser.id)
     .order('created_at', { ascending: false }).limit(40);
 
@@ -1309,15 +1310,15 @@ async function addNotification(userId, message, type, refId = null) {
   // For 'admin' target, find admin user
   let targetId = userId;
   if (userId === 'admin') {
-    const { data: admins } = await supabase.from('profiles').select('id').eq('role', 'admin').limit(1);
+    const { data: admins } = await db.from('profiles').select('id').eq('role', 'admin').limit(1);
     if (admins && admins[0]) targetId = admins[0].id;
     else return;
   }
-  await supabase.from('task_notifications').insert({ user_id: targetId, message, type, ref_id: refId, read: false });
+  await db.from('task_notifications').insert({ user_id: targetId, message, type, ref_id: refId, read: false });
 }
 
 async function markAllRead() {
-  await supabase.from('task_notifications').update({ read: true }).eq('user_id', currentUser.id);
+  await db.from('task_notifications').update({ read: true }).eq('user_id', currentUser.id);
   loadNotifications();
 }
 
@@ -1327,8 +1328,8 @@ async function markAllRead() {
 async function renderAdmin() {
   if (currentProfile.role !== 'admin') return;
   const el = document.getElementById('admin-content');
-  const { data: pending } = await supabase.from('profiles').select('*').eq('status', 'pending');
-  const { data: allProfiles } = await supabase.from('profiles').select('*').neq('role', 'admin').order('full_name');
+  const { data: pending } = await db.from('profiles').select('*').eq('status', 'pending');
+  const { data: allProfiles } = await db.from('profiles').select('*').neq('role', 'admin').order('full_name');
 
   let html = '';
 
@@ -1379,7 +1380,7 @@ async function renderAdmin() {
 }
 
 async function approveUser(id) {
-  await supabase.from('profiles').update({ status: 'active', role: 'manager' }).eq('id', id);
+  await db.from('profiles').update({ status: 'active', role: 'manager' }).eq('id', id);
   await addNotification(id, 'Your account has been approved! You can now log in.', 'account_approved');
   toast('User approved as manager', 'success');
   await loadManagers();
@@ -1387,14 +1388,14 @@ async function approveUser(id) {
 }
 
 async function rejectUser(id) {
-  await supabase.from('profiles').update({ status: 'blocked' }).eq('id', id);
+  await db.from('profiles').update({ status: 'blocked' }).eq('id', id);
   toast('User rejected', 'info');
   renderAdmin();
 }
 
 async function blockUser(id) {
   if (!confirm('Block this manager?')) return;
-  await supabase.from('profiles').update({ status: 'blocked' }).eq('id', id);
+  await db.from('profiles').update({ status: 'blocked' }).eq('id', id);
   toast('Manager blocked', 'info');
   await loadManagers();
   renderAdmin();
@@ -1404,7 +1405,7 @@ async function submitNewStaff() {
   const name = document.getElementById('new-staff-name').value.trim();
   const role = document.getElementById('new-staff-role').value.trim();
   if (!name) { toast('Staff name required', 'error'); return; }
-  const { error } = await supabase.from('staff').insert({ name, role: role || null, active: true });
+  const { error } = await db.from('staff').insert({ name, role: role || null, active: true });
   if (error) { toast(error.message, 'error'); return; }
   toast('Staff added!', 'success');
   closeModal('add-staff-modal');
@@ -1414,7 +1415,7 @@ async function submitNewStaff() {
 
 async function removeStaff(id) {
   if (!confirm('Remove this staff member?')) return;
-  await supabase.from('staff').update({ active: false }).eq('id', id);
+  await db.from('staff').update({ active: false }).eq('id', id);
   await loadStaff();
   renderAdmin();
 }
@@ -1423,7 +1424,7 @@ async function removeStaff(id) {
 // SESSION RESTORE
 // ========================
 (async () => {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await db.auth.getSession();
   if (session?.user) {
     await initApp(session.user);
   }
