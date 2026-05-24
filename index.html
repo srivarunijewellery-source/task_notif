@@ -574,7 +574,7 @@ async function submitComplete(){
     const {error:ue}=await db.storage.from('task-photos').upload(path,blob,{upsert:true});
     if(!ue){const {data:ud}=db.storage.from('task-photos').getPublicUrl(path);photoUrl=ud.publicUrl;}
   }
-  const {error}=await db.from('task_completions').insert({task_id:completingTaskId,completed_by:currentUser.id,completed_date:ds,note:note||null,photo_url:photoUrl});
+  const {error}=await db.from('task_completions').upsert({task_id:completingTaskId,completed_by:currentUser.id,completed_date:ds,note:note||null,photo_url:photoUrl},{onConflict:'task_id,completed_date'});
   setBtnLoading('complete-submit-btn',false);
   if(error){toast('Error: '+error.message,'error');return;}
   const {data:tk}=await db.from('tasks').select('task_type,title').eq('id',completingTaskId).single();
