@@ -355,22 +355,28 @@ async function doSignup(){
   const name=document.getElementById('signup-name').value.trim();
   const email=document.getElementById('signup-email').value.trim();
   const pass=document.getElementById('signup-pass').value;
-  const role=document.getElementById('signup-role').value;
-  dbg('doSignup',{name,email,role});
+  const reqRole=document.getElementById('signup-role').value;
+  dbg('doSignup',{name,email,reqRole});
   if(!name||!email||!pass){toast('Fill all fields','error');return;}
   if(pass.length<6){toast('Password min 6 characters','error');return;}
   setBtnLoading('signup-btn',true);
-  const {data,error}=await db.auth.signUp({email,password:pass,options:{data:{full_name:name}}});
+  const {data,error}=await db.auth.signUp({email,password:pass,options:{data:{name:name,requested_role:reqRole}}});
   setBtnLoading('signup-btn',false);
-  if(error){toast(error.message,'error');dbg('Signup error',error);return;}
-  dbg('Signup auth OK',{id:data.user?.id});
-  if(data.user){
-    const {error:pe}=await db.from('profiles').upsert({id:data.user.id,email,full_name:name,role:'pending',status:'pending',requested_role:role});
-    dbg('Profile upsert',{error:pe});
-    if(pe){toast('Signed up but profile error: '+pe.message,'error');return;}
-    toast('Request sent! Admin will approve your account.','success');
-    showLogin();
+  dbg('Signup result',{userId:data?.user?.id,session:!!data?.session,error:error?.message});
+  if(error){toast(error.message,'error');return;}
+  // If we have a user id immediately (email confirm off), upsert profile now
+  if(data.user?.id){
+    const profileData={id:data.user.id,email,name:sname,role:'pending',status:'pending'};
+    // Try adding requested_role - ignore error if column doesn't exist
+    const {error:pe}=await db.from('profiles').upsert(profileData);
+    dbg('Profile upsert',{error:pe?.message});
+    // Try to also set requested_role separately
+    if(!pe){
+      await db.from('profiles').update({requested_role:reqRole}).eq('id',data.user.id);
+    }
   }
+  toast('Request submitted! Admin will approve your account.','success');
+  showLogin();
 }
 
 async function doLogout(){await db.auth.signOut();location.reload();}
@@ -383,13 +389,14 @@ async function initApp(user){
   if(pe||!p){toast('Profile not found. Contact admin.','error');await db.auth.signOut();return;}
   if(p.status==='pending'){toast('Account pending approval.','error');await db.auth.signOut();return;}
   if(p.status==='blocked'){toast('Account blocked. Contact admin.','error');await db.auth.signOut();return;}
-  if(p.role!=='admin'&&p.role!=='manager'){toast('Access denied.','error');await db.auth.signOut();return;}
+  dbg('Role check',{role:p.role,status:p.status});
+  if(p.role!=='admin'&&p.role!=='manager'){toast('Access denied. Role: '+p.role,'error');dbg('Access denied - role is not admin or manager',{role:p.role});await db.auth.signOut();return;}
   currentProfile=p;
   document.getElementById('auth-screen').style.display='none';
   document.getElementById('app').classList.add('visible');
   document.getElementById('topbar-role').textContent=p.role==='admin'?'Admin':'Manager';
-  document.getElementById('avatar-btn').textContent=(p.full_name||'U')[0].toUpperCase();
-  document.getElementById('pm-name').textContent=p.full_name||'—';
+  document.getElementById('avatar-btn').textContent=(p.name||'U')[0].toUpperCase();
+  document.getElementById('pm-name').textContent=p.name||'—';
   document.getElementById('pm-email').textContent=p.email||'—';
   if(p.role==='admin')document.getElementById('admin-tab').style.display='';
   await loadStaff();
@@ -427,10 +434,17 @@ async function carryForward(){
 
 async function loadStaff(){const {data,error}=await db.from('staff').select('*').eq('active',true).order('name');dbg('loadStaff',{count:data?.length,error});staff=data||[];}
 async function loadManagers(){
-  const {data,error}=await db.from('profiles').select('id,full_name,email,role,status').eq('status','active').in('role',['admin','manager']);
-  dbg('loadManagers',{count:data?.length,error});
+  const {data,error}=await db.from('profiles').select('id,name,email,role,status').eq('status','active').in('role',['admin','manager']);
+  dbg('loadManagers',{count:data?.length,error:error?.message,data:data});
+  if(error){dbg('Manager fetch FAILED - RLS may be blocking',{error:error.message});managers=[];return;}
+  // All active managers for assignment
   managers=(data||[]).filter(p=>p.role==='manager');
-  if(!managers.length)managers=data||[];
+  // If no managers, fall back to all active profiles including admin
+  if(!managers.length&&data?.length){
+    dbg('No managers found, using all active profiles');
+    managers=data;
+  }
+  dbg('Final managers list',managers.map(m=>({name:m.name,role:m.role})));
 }
 
 // DASHBOARD
@@ -451,7 +465,7 @@ async function renderDashboard(){
   const half=(att||[]).filter(a=>a.status==='H').length;
   const hr=new Date().getHours();
   const gr=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
-  const fn=(currentProfile.full_name||'there').split(' ')[0];
+  const fn=(currentProfile.name||'there').split(' ')[0];
   const pending=todayTasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===today));
   const completed=todayTasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===today));
   let h='';
@@ -491,7 +505,7 @@ async function loadTasksList(){
   if(!el)return;
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const ds=fmt(taskDate),isAdmin=currentProfile.role==='admin';
-  const {data}=await db.from('tasks').select('*,task_completions(*),profiles:assigned_to(full_name,id)').order('priority',{ascending:false});
+  const {data}=await db.from('tasks').select('*,task_completions(*),profiles:assigned_to(name,id)').order('priority',{ascending:false});
   const tasks=(data||[]).filter(t=>t.task_type==='recurring'||t.scheduled_date===ds).filter(t=>isAdmin||t.assigned_to===currentUser.id);
   const pending=tasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===ds));
   const done=tasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===ds));
@@ -506,7 +520,7 @@ async function loadTasksList(){
 function taskCard(t,isDone,comp,ds){
   const isAdmin=currentProfile.role==='admin',isOwn=t.assigned_to===currentUser.id;
   const pb=t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--border)';
-  const an=t.profiles?.full_name||managers.find(m=>m.id===t.assigned_to)?.full_name||'—';
+  const an=t.profiles?.name||managers.find(m=>m.id===t.assigned_to)?.name||'—';
   const cls=isDone?'completed':t.carried_forward?'carried':'';
   let h=`<div class="task-item ${cls}" style="border-left:3px solid ${pb}">
     <div class="task-top">
@@ -567,14 +581,14 @@ async function submitComplete(){
   if(tk?.task_type==='onetime')await db.from('tasks').update({status:'done'}).eq('id',completingTaskId);
   await addNotif(currentUser.id,'"'+tk?.title+'" marked complete','task_done');
   const {data:admins}=await db.from('profiles').select('id').eq('role','admin').limit(1);
-  if(admins?.[0]&&admins[0].id!==currentUser.id)await addNotif(admins[0].id,currentProfile.full_name+' completed: "'+tk?.title+'"','task_done');
+  if(admins?.[0]&&admins[0].id!==currentUser.id)await addNotif(admins[0].id,currentProfile.name+' completed: "'+tk?.title+'"','task_done');
   closeModal('complete-modal');toast('Task complete! ✓','success');
   loadTasksList();renderDashboard();loadNotifBadge();
 }
 async function viewComp(id){
-  const {data:c}=await db.from('task_completions').select('*,profiles:completed_by(full_name)').eq('id',id).single();
+  const {data:c}=await db.from('task_completions').select('*,profiles:completed_by(name)').eq('id',id).single();
   if(!c)return;
-  let h=`<div style="font-size:13px;color:var(--text2);margin-bottom:13px;font-weight:500">Completed by <strong>${esc(c.profiles?.full_name||'?')}</strong> on ${c.completed_date}</div>`;
+  let h=`<div style="font-size:13px;color:var(--text2);margin-bottom:13px;font-weight:500">Completed by <strong>${esc(c.profiles?.name||'?')}</strong> on ${c.completed_date}</div>`;
   if(c.note)h+=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:13px;margin-bottom:11px;line-height:1.5">${esc(c.note)}</div>`;
   if(c.photo_url)h+=`<img src="${c.photo_url}" style="width:100%;border-radius:9px;cursor:pointer" onclick="window.open('${c.photo_url}')">`;
   if(!c.note&&!c.photo_url)h+='<div style="color:var(--text3);text-align:center;padding:20px;font-size:13px">No notes or photo.</div>';
@@ -589,7 +603,7 @@ function openAddTask(){
   document.getElementById('new-task-priority').value='normal';
   document.getElementById('new-task-date-field').style.display='';
   const sel=document.getElementById('new-task-assignee');
-  sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>`<option value="${m.id}">${esc(m.full_name)}</option>`).join('');
+  sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
   openModal('add-task-modal');
 }
 async function submitNewTask(){
@@ -694,9 +708,9 @@ async function loadSummary(year,month){
     db.from('tasks').select('id,assigned_to'),
     db.from('task_completions').select('task_id,completed_by').gte('completed_date',sd).lte('completed_date',es),
     db.from('attendance').select('staff_id,status').gte('date',sd).lte('date',es),
-    db.from('profiles').select('id,full_name').eq('status','active').in('role',['admin','manager'])
+    db.from('profiles').select('id,name,role,status').eq('status','active').in('role',['admin','manager'])
   ]);
-  const mm={};(mgrs||[]).forEach(m=>{mm[m.id]={name:m.full_name,done:0,total:0};});
+  const mm={};(mgrs||[]).forEach(m=>{mm[m.id]={name:m.name,done:0,total:0};});
   (tasks||[]).forEach(t=>{if(mm[t.assigned_to])mm[t.assigned_to].total++;});
   (comps||[]).forEach(c=>{const t=(tasks||[]).find(x=>x.id===c.task_id);if(t&&mm[t.assigned_to])mm[t.assigned_to].done++;});
   let h='<div class="section-header"><span class="section-title">Manager Performance</span><span class="section-title" style="color:var(--teal)">Target: 80%</span></div>';
@@ -750,16 +764,16 @@ async function renderAdmin(){
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const [{data:pending},{data:active}]=await Promise.all([
     db.from('profiles').select('*').eq('status','pending'),
-    db.from('profiles').select('*').eq('status','active').neq('role','admin').order('full_name')
+    db.from('profiles').select('*').eq('status','active').neq('role','admin').order('name')
   ]);
   let h='';
   if(pending&&pending.length){
     h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;
-    pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.full_name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">✓ Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">✕ Reject</button></div></div>`;});
+    pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">✓ Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">✕ Reject</button></div></div>`;});
   }
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
   if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👤</div><div class="empty-text">No active managers yet.</div></div>';
-  else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.full_name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
+  else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Staff (${staff.length})</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>`;
   if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👥</div><div class="empty-text">No staff added yet.</div></div>';
   else h+=staff.map(s=>`<div class="staff-row"><div class="staff-avatar">${(s.name||'?')[0].toUpperCase()}</div><div style="flex:1"><div class="staff-name">${esc(s.name)}</div>${s.role?`<div class="staff-role-tag">${esc(s.role)}</div>`:''}</div><button class="btn btn-danger btn-xs" data-rmstaff="${s.id}">Remove</button></div>`).join('');
