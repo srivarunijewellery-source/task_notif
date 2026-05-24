@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https://*.supabase.co https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.supabase.co https://*.supabase.in; connect-src 'self' https://*.supabase.co wss://*.supabase.co;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Varuni Task Manager</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
@@ -169,7 +170,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .month-chip-row::-webkit-scrollbar{display:none}
 .month-chip{padding:6px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border);color:var(--text3);background:var(--surface);white-space:nowrap;transition:all 0.15s}
 .month-chip.active{background:var(--accent-light);color:var(--purple);border-color:rgba(59,186,156,0.4)}
-.debug-log{background:#1a1b2e;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px;color:#7aff9a;max-height:190px;overflow-y:auto;line-height:1.7;word-break:break-all;white-space:pre-wrap;margin-top:6px}
 </style>
 </head>
 <body>
@@ -201,13 +201,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
       <button class="btn btn-primary btn-full" id="signup-btn">Submit Request</button>
       <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text3);font-weight:500"><span id="goto-login" style="color:var(--purple);cursor:pointer;font-weight:700">← Back to sign in</span></div>
     </div>
-    <div style="margin-top:18px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3)">Debug Log</span>
-        <button id="clear-log-btn" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer;font-weight:600">Clear</button>
-      </div>
-      <div class="debug-log" id="debug-log"></div>
-    </div>
+
   </div>
 </div>
 
@@ -325,6 +319,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 </div>
 
 <script>
+// Security: prevent clickjacking
+if(window.self!==window.top)window.top.location=window.self.location;
+
 const SUPABASE_URL='https://brtepaeqocjxmkinrwpg.supabase.co';
 const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJydGVwYWVxb2NqeG1raW5yd3BnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNzQ2ODQsImV4cCI6MjA5Mzc1MDY4NH0.1qke-Eagrl6Vaef2hrFoOKoB2pSnqEoQKmGN7i3EkI0';
 const {createClient}=window.supabase;
@@ -335,22 +332,16 @@ let attPolicy={weekoff:'1_per_week',weekend_penalty:true};
 let attDatedCache=[];
 let taskCategories=[];
 
-function dbg(msg,data){
-  const el=document.getElementById('debug-log');
-  if(!el)return;
-  const ts=new Date().toLocaleTimeString('en-IN',{hour12:false});
-  let line='['+ts+'] '+msg;
-  if(data!==undefined){try{line+='\n  '+JSON.stringify(data,null,2).replace(/\n/g,'\n  ');}catch(e){line+='\n  '+String(data);}}
-  el.textContent+=line+'\n';
-  el.scrollTop=el.scrollHeight;
-}
+function dbg(){}
 
 function fmt(d){return d.toISOString().split('T')[0];}
 function fmtDisp(s){
   const today=fmt(new Date()),yest=fmt(new Date(Date.now()-86400000));
-  if(s===today)return'Today';
-  if(s===yest)return'Yesterday';
-  return new Date(s+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+  const d=new Date(s+'T00:00:00');
+  const dayStr=d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
+  if(s===today)return'Today · '+dayStr;
+  if(s===yest)return'Yesterday · '+dayStr;
+  return dayStr;
 }
 function toast(msg,type='info'){
   const t=document.createElement('div');
@@ -411,7 +402,12 @@ async function doSignup(){
   showLogin();
 }
 
-async function doLogout(){await db.auth.signOut();location.reload();}
+async function doLogout(){
+  await db.auth.signOut();
+  // Clear all sensitive state before reload
+  currentUser=null;currentProfile=null;staff=[];managers=[];taskCategories=[];
+  location.reload();
+}
 
 async function initApp(user){
   currentUser=user;
@@ -669,6 +665,7 @@ function wireCards(container,ds){
 
 function openComplete(id,title){
   completingTaskId=id;photoDataURL=null;
+  // Use textContent (never innerHTML) for user data - safe from XSS
   document.getElementById('complete-task-title').textContent=title;
   document.getElementById('complete-note').value='';
   document.getElementById('photo-preview-wrap').style.display='none';
@@ -694,7 +691,7 @@ async function submitComplete(){
   if(tk?.task_type==='onetime')await db.from('tasks').update({status:'done'}).eq('id',completingTaskId);
   await addNotif(currentUser.id,'"'+tk?.title+'" marked complete','task_done');
   const {data:admins}=await db.from('profiles').select('id').eq('role','admin').limit(1);
-  if(admins?.[0]&&admins[0].id!==currentUser.id)await addNotif(admins[0].id,currentProfile.name+' completed: "'+tk?.title+'"','task_done');
+  if(admins?.[0]&&admins[0].id!==currentUser.id)await addNotif(admins[0].id,esc(currentProfile.name)+' completed: "'+esc(tk?.title||'')+'"','task_done');
   closeModal('complete-modal');toast('Task complete! ✓','success');
   loadTasksList();renderDashboard();loadNotifBadge();
 }
@@ -1093,10 +1090,11 @@ async function renderAdmin(){
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
   if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No active managers yet.</div></div>';
   else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
-  // Refresh staff before rendering
-  await loadStaff();
+  // Always fetch staff directly in admin view
+  const {data:adminStaff}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');
+  if(adminStaff)staff=adminStaff;
   h+='<div class="section-header" style="margin-top:8px"><span class="section-title">Staff ('+staff.length+')</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>';
-  if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No staff added yet.</div></div>';
+  if(!staff.length)h+='<div class="empty" style="padding:22px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:8px 0">No staff added yet. Use + Add above.</div></div>';
   else h+=staff.map(s=>{
     const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
     const wkOpts=['none','1_per_month','1_per_2weeks','1_per_week'];
@@ -1139,17 +1137,11 @@ async function renderAdmin(){
   if(settingsRow?.value){try{policy=typeof settingsRow.value==='string'?JSON.parse(settingsRow.value):settingsRow.value;}catch(e){}}
   const policyHtml='<div class="section-header" style="margin-top:16px"><span class="section-title">Attendance Policy</span></div>'
     +'<div class="card">'
-    +'<div class="field" style="margin-bottom:14px"><label>Weekly Off Allowance per Staff</label>'
-    +'<select id="weekoff-select">'
-    +'<option value="none"'+(policy.weekoff==='none'?' selected':'')+'>None</option>'
-    +'<option value="1_per_month"'+(policy.weekoff==='1_per_month'?' selected':'')+'>1 per month</option>'
-    +'<option value="1_per_2weeks"'+(policy.weekoff==='1_per_2weeks'?' selected':'')+'>1 per 2 weeks</option>'
-    +'<option value="1_per_week"'+(policy.weekoff==='1_per_week'?' selected':'')+'>1 per week</option>'
-    +'</select></div>'
-    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:11px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
-    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--purple);cursor:pointer">'
-    +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2 day penalty</div>'
-    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat/Sun counts as 2 days off</div></div>'
+    +'<div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5;padding:2px 0">Weekly day-off allowance is configured per staff member in the list above.</div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
+    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">'
+    +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2-day penalty</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat or Sun counts as 2 days off instead of 1</div></div>'
     +'</div>'
     +'<button class="btn btn-primary btn-sm" id="save-att-policy-btn">Save Policy</button>'
     +'</div>';
@@ -1158,9 +1150,8 @@ async function renderAdmin(){
   const savePolicyBtn=document.getElementById('save-att-policy-btn');
   if(savePolicyBtn){
     savePolicyBtn.addEventListener('click',async()=>{
-      const weekoff=document.getElementById('weekoff-select').value;
       const weekend_penalty=document.getElementById('weekend-penalty').checked;
-      const newPolicy={weekoff,weekend_penalty};
+      const newPolicy={weekoff:attPolicy.weekoff||'1_per_week',weekend_penalty};
       await db.from('settings').upsert({key:'attendance_policy',value:JSON.stringify(newPolicy)},{onConflict:'key'});
       attPolicy=newPolicy;
       toast('Attendance policy saved!','success');
@@ -1302,7 +1293,6 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('signup-btn').addEventListener('click',doSignup);
   document.getElementById('goto-signup').addEventListener('click',showSignup);
   document.getElementById('goto-login').addEventListener('click',showLogin);
-  document.getElementById('clear-log-btn').addEventListener('click',()=>{document.getElementById('debug-log').textContent='';});
   document.getElementById('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
   document.getElementById('login-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
   document.getElementById('signup-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doSignup();});
