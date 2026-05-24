@@ -233,12 +233,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <div class="page" id="page-notifications"></div>
   <div class="page" id="page-admin"></div>
   <div class="tabs" id="tab-bar">
-    <div class="tab active" data-tab="dashboard"><span class="tab-icon">◈</span>Today</div>
-    <div class="tab" data-tab="tasks"><span class="tab-icon">◻</span>Tasks</div>
-    <div class="tab" data-tab="attendance"><span class="tab-icon">◷</span>Attend.</div>
-    <div class="tab" data-tab="summary"><span class="tab-icon">▦</span>Summary</div>
-    <div class="tab" data-tab="notifications"><span class="tab-icon">◉</span>Alerts</div>
-    <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon">◎</span>Admin</div>
+    <div class="tab active" data-tab="dashboard"><span class="tab-icon" style="font-size:17px">⊡</span>Today</div>
+    <div class="tab" data-tab="tasks"><span class="tab-icon" style="font-size:17px">⊟</span>Tasks</div>
+    <div class="tab" data-tab="attendance"><span class="tab-icon" style="font-size:17px">⊕</span>Attend.</div>
+    <div class="tab" data-tab="summary"><span class="tab-icon" style="font-size:17px">⊞</span>Summary</div>
+    <div class="tab" data-tab="notifications"><span class="tab-icon" style="font-size:17px">◎</span>Alerts</div>
+    <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon" style="font-size:17px">⊛</span>Admin</div>
   </div>
 </div>
 
@@ -588,8 +588,8 @@ function taskCard(t,isDone,comp,ds){
   const prDot=t.priority==='urgent'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
     :t.priority==='high'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
     :'<span style="width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0;margin-top:6px;display:inline-block"></span>';
-  let h='<div class="task-item '+cls+'" data-task-expand="'+t.id+'" style="cursor:pointer">'
-    +'<div class="task-top">'
+  let h='<div class="task-item '+cls+'" id="ti-'+t.id+'">'
+    +'<div class="task-top" data-task-expand="'+t.id+'" style="cursor:pointer;user-select:none">'
     +prDot
     +'<div class="task-body" style="padding-left:8px">'
     +'<div class="task-title'+(isDone?' done':'')+'">'+esc(t.title)+'</div>'
@@ -601,7 +601,7 @@ function taskCard(t,isDone,comp,ds){
     +(isAdmin?'<span class="assignee-tag">'+esc(an)+'</span>':'')
     +'</div>'
     +'</div>'
-    +'<div style="font-size:10px;color:var(--text3);flex-shrink:0;margin-left:4px;font-weight:700">▾</div>'
+    +'<div class="task-expand-arrow" style="font-size:11px;color:var(--text3);flex-shrink:0;margin-left:6px;font-weight:700;transition:transform 0.2s">▾</div>'
     +'</div>'
     +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
     +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
@@ -619,24 +619,26 @@ function taskCard(t,isDone,comp,ds){
   } else if(!isDone&&isAdmin&&!isOwn){
     h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button><button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button></div>';
   } else if(isDone&&comp){
-    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details</button>'+(isAdmin?'<button class="btn btn-danger btn-xs" data-undo="'+comp.id+'">Undo</button>':'')+'</div>';
+    const canUndo=isAdmin||(isOwn&&comp.completed_date===ds);
+    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details</button>'+(canUndo?'<button class="btn btn-ghost btn-xs" data-undo="'+comp.id+'">Undo</button>':'')+'</div>';
   }
   h+='</div></div>';
   return h;
 }
 function wireCards(container,ds){
   // Expand/collapse task cards on click
-  container.querySelectorAll('[data-task-expand]').forEach(card=>{
-    card.addEventListener('click',e=>{
-      // Don't expand if clicking a button/interactive element
-      if(e.target.closest('button')||e.target.closest('[data-oc]')||e.target.closest('[data-edit-task]')||e.target.closest('[data-del]')||e.target.closest('[data-vc]')||e.target.closest('[data-undo]'))return;
-      const id=card.getAttribute('data-task-expand');
+  container.querySelectorAll('[data-task-expand]').forEach(header=>{
+    header.addEventListener('click',e=>{
+      if(e.target.closest('button'))return;
+      const id=header.getAttribute('data-task-expand');
       const detail=document.getElementById('td-'+id);
+      const card=document.getElementById('ti-'+id);
       if(!detail)return;
-      const open=detail.style.display!=='none';
+      const open=detail.style.display==='block';
       detail.style.display=open?'none':'block';
-      const arrow=card.querySelector('[style*="▾"]');
-      if(arrow)arrow.textContent=open?'▾':'▴';
+      const arrow=header.querySelector('.task-expand-arrow');
+      if(arrow){arrow.textContent=open?'▾':'▴';arrow.style.transform=open?'':'rotate(-90deg)';}
+      if(card)card.style.boxShadow=open?'':'0 4px 16px rgba(46,48,71,0.12)';
     });
   });
   container.querySelectorAll('[data-oc]').forEach(el=>{
@@ -751,15 +753,17 @@ async function deleteTask(id){
 
 // ATTENDANCE
 function initAttDate(){attDate=new Date();renderAttendance();}
-function renderAttendance(){
+async function renderAttendance(){
   const el=document.getElementById('page-attendance');
-  const isAdmin=currentProfile.role==='admin';
-  el.innerHTML=`<div class="date-nav"><button class="date-nav-btn" id="ap">‹</button><span class="date-label" id="adl">—</span><button class="date-today-btn" id="at">Today</button><button class="date-nav-btn" id="an">›</button></div>
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3)">${staff.length} Staff Members</span>
-    <button class="btn btn-primary btn-sm" id="att-add-staff-btn">+ Add Staff</button>
-  </div>
-  <div id="att-list"></div>`;
+  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  // Always reload staff fresh
+  await loadStaff();
+  el.innerHTML='<div class="date-nav"><button class="date-nav-btn" id="ap">‹</button><span class="date-label" id="adl">—</span><button class="date-today-btn" id="at">Today</button><button class="date-nav-btn" id="an">›</button></div>'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    +'<span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3)">'+staff.length+' Staff Members</span>'
+    +'<button class="btn btn-primary btn-sm" id="att-add-staff-btn">+ Add Staff</button>'
+    +'</div>'
+    +'<div id="att-list"></div>';
   document.getElementById('ap').addEventListener('click',()=>{attDate=new Date(+attDate-86400000);updADL();loadAttList();});
   document.getElementById('an').addEventListener('click',()=>{attDate=new Date(+attDate+86400000);updADL();loadAttList();});
   document.getElementById('at').addEventListener('click',()=>{attDate=new Date();updADL();loadAttList();});
@@ -830,122 +834,163 @@ async function renderSummary(){
 async function loadSummary(year,month){
   const el=document.getElementById('sum-body');if(!el)return;
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  const isAdmin=currentProfile.role==='admin';
   const sd=year+'-'+String(month+1).padStart(2,'0')+'-01';
   const ed=new Date(year,month+1,0);
   const es=fmt(ed);
   const dim=ed.getDate();
-  const [{data:tasks},{data:comps},{data:att},{data:mgrs}]=await Promise.all([
-    db.from('tasks').select('id,assigned_to'),
-    db.from('task_completions').select('task_id,completed_by').gte('completed_date',sd).lte('completed_date',es),
+  const monthLabel=new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+
+  // ── Fetch all data ──
+  const [tasksRes,compsRes,attRes,catsRes,attDatedRes]=await Promise.all([
+    db.from('tasks').select('id,assigned_to,category_id,title'),
+    db.from('task_completions').select('task_id,completed_by,completed_date').gte('completed_date',sd).lte('completed_date',es),
     db.from('attendance').select('staff_id,status').gte('date',sd).lte('date',es),
-    db.from('profiles').select('id,name,role,status').eq('status','active').in('role',['admin','manager'])
+    db.from('task_categories').select('id,name,color,text_color'),
+    db.from('attendance').select('staff_id,status,date').gte('date',sd).lte('date',es),
   ]);
-  const mm={};(mgrs||[]).forEach(m=>{mm[m.id]={name:m.name,done:0,total:0};});
-  (tasks||[]).forEach(t=>{if(mm[t.assigned_to])mm[t.assigned_to].total++;});
-  (comps||[]).forEach(c=>{const t=(tasks||[]).find(x=>x.id===c.task_id);if(t&&mm[t.assigned_to])mm[t.assigned_to].done++;});
-  let h='<div class="section-header"><span class="section-title">Manager Performance</span><span class="section-title" style="color:var(--accent)">Target: 80%</span></div>';
-  Object.values(mm).forEach(m=>{
-    const pct=m.total>0?Math.round(m.done/m.total*100):0;
-    const col=pct>=80?'green':pct>=60?'gold':'red';
-    const ok=pct>=80;
-    h+=`<div class="card"><div class="card-header"><span class="card-title">${esc(m.name)}</span><span class="badge ${ok?'badge-done':'badge-urgent'}">${ok?'🏆 Bonus':'⚠ Below'}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);font-weight:500;margin-bottom:3px"><span>${m.done}/${m.total} tasks</span><span style="font-weight:700;color:var(--text)">${pct}%</span></div>
-      <div class="progress-bar"><div class="progress-fill ${col}" style="width:${pct}%"></div></div>
-      <div style="margin-top:5px;font-size:11px;color:var(--text3)">${ok?'✓ Qualifies for bonus':'Needs '+(80-pct)+'% more'}</div>
-    </div>`;
-  });
+  const tasks=tasksRes.data||[], comps=compsRes.data||[], att=attRes.data||[];
+  const cats=catsRes.data||[];
+  attDatedCache=attDatedRes.data||[];
+
+  let h='';
+
+  if(isAdmin){
+    // ── ADMIN VIEW: all managers performance ──
+    const {data:mgrs}=await db.from('profiles').select('id,name,role,status').eq('status','active').in('role',['admin','manager']);
+    const mm={};(mgrs||[]).forEach(m=>{mm[m.id]={name:m.name,done:0,total:0};});
+    tasks.forEach(t=>{if(mm[t.assigned_to])mm[t.assigned_to].total++;});
+    comps.forEach(c=>{const t=tasks.find(x=>x.id===c.task_id);if(t&&mm[t.assigned_to])mm[t.assigned_to].done++;});
+
+    h+='<div class="section-header"><span class="section-title">All Managers — '+monthLabel+'</span></div>';
+    const mgrEntries=Object.values(mm);
+    if(!mgrEntries.length){
+      h+='<div class="empty" style="padding:24px"><div class="empty-icon" style="font-family:var(--mono);font-size:28px;color:var(--border2)">○</div><div class="empty-text">No managers yet.</div></div>';
+    } else {
+      mgrEntries.forEach(m=>{
+        const pct=m.total>0?Math.round(m.done/m.total*100):0;
+        const col=pct>=80?'accent':pct>=60?'gold':'red';
+        h+='<div class="card">'
+          +'<div class="card-header"><span class="card-title">'+esc(m.name)+'</span>'
+          +'<span style="font-family:var(--mono);font-size:16px;font-weight:800;color:'+(pct>=80?'var(--accent)':pct>=60?'var(--gold)':'var(--red)')+'">'+pct+'%</span>'
+          +'</div>'
+          +'<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-bottom:4px">'
+          +'<span>'+m.done+' of '+m.total+' tasks completed</span>'
+          +'</div>'
+          +'<div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+pct+'%"></div></div>'
+          +'</div>';
+      });
+    }
+
+  } else {
+    // ── MANAGER VIEW: only their own performance by category ──
+    const myId=currentUser.id;
+    const myTasks=tasks.filter(t=>t.assigned_to===myId);
+    const myComps=comps.filter(c=>c.completed_by===myId);
+    const doneTaskIds=new Set(myComps.map(c=>c.task_id));
+
+    const totalDone=myTasks.filter(t=>doneTaskIds.has(t.id)).length;
+    const totalTasks=myTasks.length;
+    const overallPct=totalTasks>0?Math.round(totalDone/totalTasks*100):0;
+    const col=overallPct>=80?'accent':overallPct>=60?'gold':'red';
+
+    h+='<div class="card" style="margin-bottom:14px">'
+      +'<div class="card-header"><span class="card-title">'+monthLabel+'</span>'
+      +'<span style="font-family:var(--mono);font-size:20px;font-weight:800;color:'+(overallPct>=80?'var(--accent)':overallPct>=60?'var(--gold)':'var(--red)')+'">'+overallPct+'%</span>'
+      +'</div>'
+      +'<div style="font-size:13px;color:var(--text2);margin-bottom:6px">'+totalDone+' of '+totalTasks+' tasks completed</div>'
+      +'<div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+overallPct+'%"></div></div>'
+      +'</div>';
+
+    // ── By category breakdown ──
+    h+='<div class="section-header"><span class="section-title">By Category</span></div>';
+
+    // Group tasks by category
+    const catMap={};
+    myTasks.forEach(t=>{
+      const key=t.category_id||'__none__';
+      if(!catMap[key])catMap[key]={cat:cats.find(c=>c.id===t.category_id)||null,done:0,total:0,missed:[]};
+      catMap[key].total++;
+      if(doneTaskIds.has(t.id))catMap[key].done++;
+      else catMap[key].missed.push(t.title);
+    });
+
+    const catEntries=Object.values(catMap).sort((a,b)=>b.total-a.total);
+    if(!catEntries.length){
+      h+='<div class="empty" style="padding:24px"><div class="empty-icon" style="font-family:var(--mono);font-size:28px;color:var(--border2)">○</div><div class="empty-text">No tasks this month.</div></div>';
+    } else {
+      catEntries.forEach(({cat,done,total,missed})=>{
+        const pct=total>0?Math.round(done/total*100):0;
+        const pcol=pct===100?'accent':pct>=60?'gold':'red';
+        const catName=cat?cat.name:'Uncategorised';
+        const catStyle=cat?'background:'+cat.color+';color:'+cat.text_color:' background:var(--surface3);color:var(--text2)';
+        h+='<div class="card" style="margin-bottom:10px">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+          +'<span class="badge" style="'+catStyle+'">'+esc(catName)+'</span>'
+          +'<span style="font-family:var(--mono);font-weight:800;font-size:15px;color:'+(pct===100?'var(--accent)':pct>=60?'var(--gold)':'var(--red)')+'">'+done+'/'+total+'</span>'
+          +'</div>'
+          +'<div class="progress-bar"><div class="progress-fill '+pcol+'" style="width:'+pct+'%"></div></div>'
+          +(missed.length?'<div style="margin-top:8px;padding:8px 10px;background:var(--red-light);border-radius:8px;border:1px solid rgba(224,85,85,0.15)">'
+            +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">Missed</div>'
+            +'<div style="font-size:12px;color:var(--text2);line-height:1.6">'+missed.map(m=>esc(m)).join(', ')+'</div>'
+            +'</div>':'')
+          +'</div>';
+      });
+    }
+  }
+
+  // ── Attendance table (both admin and manager see it) ──
   if(staff.length){
-    // ── Attendance policy calculations ──
-    // 1. Count working days in month (excl weekends if weekend_penalty applies)
-    // 2. Calculate allowed week-offs
-    // 3. Weekend absence = 2 day penalty if policy enabled
+    let weekdaysInMonth=0,weekendDaysInMonth=0;
+    for(let d=1;d<=dim;d++){const day=new Date(year,month,d).getDay();if(day===0||day===6)weekendDaysInMonth++;else weekdaysInMonth++;}
+    function getAllowedOffs(policy,dim,wk){const weeks=Math.floor(dim/7);if(policy.weekoff==='none')return 0;if(policy.weekoff==='1_per_week')return weeks;if(policy.weekoff==='1_per_2weeks')return Math.floor(weeks/2);if(policy.weekoff==='1_per_month')return 1;return 0;}
 
-    // Count weekdays and weekend days in month
-    let weekdaysInMonth=0, weekendDaysInMonth=0;
-    for(let d=1;d<=dim;d++){
-      const day=new Date(year,month,d).getDay();
-      if(day===0||day===6)weekendDaysInMonth++;
-      else weekdaysInMonth++;
-    }
+    h+='<div class="section-header" style="margin-top:16px"><span class="section-title">Staff Attendance — '+monthLabel+'</span></div>';
+    h+='<div class="table-wrap"><table class="data-table"><thead><tr>'
+      +'<th>Name</th>'
+      +'<th style="color:var(--accent)">P</th>'
+      +'<th style="color:var(--red)">A</th>'
+      +'<th style="color:var(--red)">Wknd A</th>'
+      +'<th style="color:var(--purple-mid)">W/O</th>'
+      +'<th>Days</th>'
+      +'<th>%</th>'
+      +'</tr></thead><tbody>';
 
-    // Allowed offs per person based on policy
-    function getAllowedOffs(policy,dim,weekdaysInMonth){
-      const weeks=Math.floor(dim/7);
-      if(policy.weekoff==='none')return 0;
-      if(policy.weekoff==='1_per_week')return weeks;
-      if(policy.weekoff==='1_per_2weeks')return Math.floor(weeks/2);
-      if(policy.weekoff==='1_per_month')return 1;
-      return 0;
-    }
-    const allowedOffs=getAllowedOffs(attPolicy,dim,weekdaysInMonth);
-
-    // Get all dated attendance records for penalty calc (also used by calendar click)
-    attDatedCache=await db.from('attendance').select('staff_id,status,date').gte('date',sd).lte('date',es).then(r=>r.data||[]);
-    const attDated=attDatedCache;
-
-    h+=`<div class="section-header" style="margin-top:8px">
-      <span class="section-title">Attendance — ${new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span>
-    </div>
-    <div class="card" style="margin-bottom:12px;background:var(--accent-light);border-color:rgba(193,123,63,0.2)">
-      <div style="font-size:12px;font-weight:600;color:var(--accent2);margin-bottom:6px">📋 Active Policy</div>
-      <div style="font-size:12px;color:var(--text2);line-height:1.7">
-        • Default week-off: <strong>${{none:'None','1_per_month':'1 per month','1_per_2weeks':'1 per 2 weeks','1_per_week':'1 per week'}[attPolicy.weekoff]||attPolicy.weekoff}</strong> (overrideable per staff)<br>
-        • Weekend absence: <strong>${attPolicy.weekend_penalty?'2-day penalty':'Normal (1 day)'}</strong>
-      </div>
-    </div>`;
-    h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--accent)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Penalty</th><th>Net</th></tr></thead><tbody>';
     staff.forEach(s=>{
-      // Use staff's own weekoff setting, fall back to global policy
       const staffWeekoff=s.weekoff_allowance||attPolicy.weekoff||'1_per_week';
       const allowedOffs=getAllowedOffs({weekoff:staffWeekoff},dim,weekdaysInMonth);
-      const sa=(att||[]).filter(a=>a.staff_id===s.id);
-      const P=sa.filter(a=>a.status==='P').length;
-      const A=sa.filter(a=>a.status==='A').length;
-      const H=sa.filter(a=>a.status==='H').length;
-
-      // Weekend penalty: for each absent day on Sat/Sun, count as 2
+      const sa=att.filter(a=>a.staff_id===s.id);
+      const P=sa.filter(a=>a.status==='P').length,A=sa.filter(a=>a.status==='A').length,H=sa.filter(a=>a.status==='H').length;
       let weekendPenalty=0;
       if(attPolicy.weekend_penalty){
-        const saDated=(attDated||[]).filter(a=>a.staff_id===s.id&&a.status==='A');
-        saDated.forEach(a=>{
-          const day=new Date(a.date+'T00:00:00').getDay();
-          if(day===0||day===6)weekendPenalty++; // extra 1 (total becomes 2)
+        attDatedCache.filter(a=>a.staff_id===s.id&&a.status==='A').forEach(a=>{
+          const day=new Date(a.date+'T00:00:00').getDay();if(day===0||day===6)weekendPenalty++;
         });
       }
-
-      const totalAbsent=A+weekendPenalty; // adjusted absences
-      const netOffs=Math.max(0,totalAbsent-allowedOffs);
       const effectiveWorked=P+H*0.5;
-      const rate=dim>0?Math.round((effectiveWorked/(dim-allowedOffs))*100):0;
-      const cappedRate=Math.min(100,rate);
-      const rc=cappedRate>=90?'var(--accent)':cappedRate>=75?'var(--gold)':'var(--red)';
-      // Total days for salary = P + H*0.5 - net penalty
-      const salaryDays=(effectiveWorked-Math.max(0,netOffs)).toFixed(1);
+      const netOffs=Math.max(0,(A+weekendPenalty)-allowedOffs);
+      const salaryDays=Math.max(0,effectiveWorked-netOffs).toFixed(1);
+      const rate=dim>0?Math.min(100,Math.round(effectiveWorked/(dim-allowedOffs)*100)):0;
+      const rc=rate>=90?'var(--accent)':rate>=75?'var(--gold)':'var(--red)';
       h+='<tr style="cursor:pointer" data-staff-id="'+s.id+'" data-staff-name="'+esc(s.name)+'" class="staff-cal-row">'
-        +'<td style="font-weight:700;color:var(--text)">'+esc(s.name)+' <span style="font-size:9px;color:var(--accent);font-weight:700">▦</span></td>'
+        +'<td style="font-weight:700">'+esc(s.name)+'</td>'
         +'<td style="color:var(--accent);font-weight:700">'+P+'</td>'
         +'<td style="color:var(--red);font-weight:700">'+A+'</td>'
         +'<td style="color:var(--red);font-weight:600;font-size:12px">'+(weekendPenalty>0?weekendPenalty:'—')+'</td>'
         +'<td style="color:var(--purple-mid);font-weight:600">'+allowedOffs+'</td>'
         +'<td><span style="font-family:var(--mono);font-weight:800;font-size:14px">'+salaryDays+'</span></td>'
-        +'<td><span style="font-family:var(--mono);font-weight:700;color:'+rc+'">'+cappedRate+'%</span></td>'
+        +'<td><span style="font-family:var(--mono);font-weight:700;color:'+rc+'">'+rate+'%</span></td>'
         +'</tr>';
     });
     h+='</tbody></table></div>';
-    h+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6;padding:0 2px">
-      <strong>How it's calculated:</strong> Attendance % = Days present ÷ (Working days − Allowed offs). 
-      ${attPolicy.weekend_penalty?'Weekend absences count double. ':''}
-      Allowed offs vary per staff based on their individual setting.
-    </div>`;
   }
+
   el.innerHTML=h;
-  // Wire staff row clicks for calendar view
   el.querySelectorAll('.staff-cal-row').forEach(row=>{
-    row.addEventListener('click',()=>{
-      openStaffCalendar(row.dataset.staffId, row.dataset.staffName, year, month, attDatedCache||[]);
-    });
+    row.addEventListener('click',()=>{openStaffCalendar(row.dataset.staffId,row.dataset.staffName,year,month,attDatedCache);});
   });
 }
+
 
 // CATEGORIES MANAGEMENT
 const CAT_COLORS=[
