@@ -268,9 +268,9 @@
       <div class="auth-sub">Sign in to your account</div>
       <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@email.com" autocomplete="email"></div>
       <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
-      <button class="btn btn-primary btn-full" id="login-btn" onclick="doLogin()">Sign In</button>
+      <button class="btn btn-primary btn-full" id="login-btn">Sign In</button>
       <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">
-        No account? <span style="color:var(--accent2);cursor:pointer;font-weight:600" onclick="showSignup()">Request access</span>
+        No account? <span style="color:var(--accent2);cursor:pointer;font-weight:600" id="goto-signup">Request access</span>
       </div>
     </div>
     <div id="signup-form" style="display:none">
@@ -279,9 +279,9 @@
       <div class="field"><label>Full Name</label><input type="text" id="signup-name" placeholder="Your name"></div>
       <div class="field"><label>Email</label><input type="email" id="signup-email" placeholder="you@email.com"></div>
       <div class="field"><label>Password</label><input type="password" id="signup-pass" placeholder="Min 6 characters"></div>
-      <button class="btn btn-primary btn-full" id="signup-btn" onclick="doSignup()">Request Access</button>
+      <button class="btn btn-primary btn-full" id="signup-btn">Request Access</button>
       <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--text3)">
-        <span style="color:var(--accent2);cursor:pointer;font-weight:600" onclick="showLogin()">← Back to sign in</span>
+        <span style="color:var(--accent2);cursor:pointer;font-weight:600" id="goto-login">← Back to sign in</span>
       </div>
     </div>
   </div>
@@ -629,10 +629,15 @@ async function doLogout() {
 // ========================
 async function initApp(user) {
   currentUser = user;
-  const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-  if (!profile) { toast('Profile not found. Contact admin.', 'error'); await supabase.auth.signOut(); return; }
-  if (profile.status === 'pending') { toast('Your account is pending approval.', 'error'); await supabase.auth.signOut(); return; }
-  if (profile.status === 'blocked') { toast('Your account has been blocked.', 'error'); await supabase.auth.signOut(); return; }
+  const { data: profile, error: profileErr } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  if (profileErr || !profile) {
+    // Profile may not exist yet (just signed up) — sign out gracefully
+    toast('Profile not found. If you just signed up, wait for approval.', 'error');
+    await supabase.auth.signOut();
+    return;
+  }
+  if (profile.status === 'pending') { toast('Your account is pending admin approval.', 'error'); await supabase.auth.signOut(); return; }
+  if (profile.status === 'blocked') { toast('Your account has been blocked. Contact admin.', 'error'); await supabase.auth.signOut(); return; }
   currentProfile = profile;
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
@@ -1393,6 +1398,22 @@ async function removeStaff(id) {
     await initApp(session.user);
   }
 })();
+
+// ========================
+// WIRE UP AUTH BUTTONS
+// (addEventListener instead of inline onclick — avoids CSP issues)
+// ========================
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('login-btn').addEventListener('click', doLogin);
+  document.getElementById('signup-btn').addEventListener('click', doSignup);
+  document.getElementById('goto-signup').addEventListener('click', showSignup);
+  document.getElementById('goto-login').addEventListener('click', showLogin);
+
+  // Allow Enter key on login fields
+  document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  document.getElementById('signup-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doSignup(); });
+});
 </script>
 </body>
 </html>
