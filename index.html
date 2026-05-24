@@ -871,9 +871,58 @@ async function renderAdmin(){
   else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Staff (${staff.length})</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>`;
   if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👥</div><div class="empty-text">No staff added yet.</div></div>';
-  else h+=staff.map(s=>`<div class="staff-row"><div class="staff-avatar">${(s.name||'?')[0].toUpperCase()}</div><div style="flex:1"><div class="staff-name">${esc(s.name)}</div>${s.role?`<div class="staff-role-tag">${esc(s.role)}</div>`:''}</div><button class="btn btn-danger btn-xs" data-rmstaff="${s.id}">Remove</button></div>`).join('');
+  else h+=staff.map(s=>{
+    const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
+    return '<div class="staff-row">'
+      +'<div class="staff-avatar">'+((s.name||'?')[0].toUpperCase())+'</div>'
+      +'<div style="flex:1"><div class="staff-name">'+esc(s.name)+'</div>'+roleTag+'</div>'
+      +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button>'
+      +'</div>';
+  }).join('');
   el.innerHTML=h;
 
+  // Wire buttons
+  el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
+  el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
+  el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? They will also be blocked in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
+  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove staff?'))return;await db.from('staff').update({active:false}).eq('id',b.getAttribute('data-rmstaff'));await loadStaff();renderAdmin();});});
+  const oasBtn=document.getElementById('open-add-staff');
+  if(oasBtn)oasBtn.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
+
+  // Attendance policy
+  const {data:settingsRow}=await db.from('settings').select('value').eq('key','attendance_policy').maybeSingle();
+  let policy={weekoff:'1_per_week',weekend_penalty:true};
+  if(settingsRow?.value){try{policy=typeof settingsRow.value==='string'?JSON.parse(settingsRow.value):settingsRow.value;}catch(e){}}
+  const policyHtml='<div class="section-header" style="margin-top:16px"><span class="section-title">Attendance Policy</span></div>'
+    +'<div class="card">'
+    +'<div class="field" style="margin-bottom:14px"><label>Weekly Off Allowance per Staff</label>'
+    +'<select id="weekoff-select">'
+    +'<option value="none"'+(policy.weekoff==='none'?' selected':'')+'>None</option>'
+    +'<option value="1_per_month"'+(policy.weekoff==='1_per_month'?' selected':'')+'>1 per month</option>'
+    +'<option value="1_per_2weeks"'+(policy.weekoff==='1_per_2weeks'?' selected':'')+'>1 per 2 weeks</option>'
+    +'<option value="1_per_week"'+(policy.weekoff==='1_per_week'?' selected':'')+'>1 per week</option>'
+    +'</select></div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:11px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
+    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">'
+    +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2 day penalty</div>'
+    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat/Sun counts as 2 days off</div></div>'
+    +'</div>'
+    +'<button class="btn btn-primary btn-sm" id="save-att-policy-btn">Save Policy</button>'
+    +'</div>';
+  el.insertAdjacentHTML('beforeend', policyHtml);
+
+  const savePolicyBtn=document.getElementById('save-att-policy-btn');
+  if(savePolicyBtn){
+    savePolicyBtn.addEventListener('click',async()=>{
+      const weekoff=document.getElementById('weekoff-select').value;
+      const weekend_penalty=document.getElementById('weekend-penalty').checked;
+      const newPolicy={weekoff,weekend_penalty};
+      await db.from('settings').upsert({key:'attendance_policy',value:JSON.stringify(newPolicy)},{onConflict:'key'});
+      attPolicy=newPolicy;
+      toast('Attendance policy saved!','success');
+    });
+  }
+}
 
 // ========================
 // STAFF ATTENDANCE CALENDAR
@@ -940,11 +989,15 @@ function renderCalGrid(){
     if(isSelected){border='2px solid var(--accent)';}
 
     const clickable=isAdmin&&!isFuture;
-    h+=`<div ${clickable?`data-cal-date="${dateStr}" class="cal-cell"`:''}
-      style="border-radius:8px;padding:6px 2px;text-align:center;background:${bg};border:${border};${clickable?'cursor:pointer;':''}${isSelected?'box-shadow:0 0 0 2px var(--accent-dim);':''}">
-      <div style="font-size:12px;font-weight:700;color:${textCol}">${d}</div>
-      <div style="font-size:9px;color:${textCol};height:12px;line-height:12px">${emoji}</div>
-    </div>`;
+    const calAttrs=clickable?('data-cal-date="'+dateStr+'" class="cal-cell"'):'';
+    const calStyle='border-radius:8px;padding:6px 2px;text-align:center;'
+      +'background:'+bg+';border:'+border+';'
+      +(clickable?'cursor:pointer;':'')
+      +(isSelected?'box-shadow:0 0 0 2px rgba(193,123,63,0.3);':'');
+    h+='<div '+calAttrs+' style="'+calStyle+'">'
+      +'<div style="font-size:12px;font-weight:700;color:'+textCol+'">'+d+'</div>'
+      +'<div style="font-size:9px;color:'+textCol+';height:12px;line-height:12px">'+emoji+'</div>'
+      +'</div>';
   }
   h+='</div>';
 
