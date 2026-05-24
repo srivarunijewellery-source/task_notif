@@ -302,6 +302,7 @@ const {createClient}=window.supabase;
 const db=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
 let currentUser=null,currentProfile=null,taskDate=new Date(),attDate=new Date(),completingTaskId=null,photoDataURL=null,managers=[],staff=[];
+let attPolicy={weekoff:'1_per_week',weekend_penalty:true};
 
 function dbg(msg,data){
   const el=document.getElementById('debug-log');
@@ -401,6 +402,7 @@ async function initApp(user){
   if(p.role==='admin')document.getElementById('admin-tab').style.display='';
   await loadStaff();
   await loadManagers();
+  await loadAttPolicy();
   if(p.role==='admin')await carryForward();
   renderDashboard();
   initTaskDate();
@@ -445,6 +447,16 @@ async function loadManagers(){
     managers=data;
   }
   dbg('Final managers list',managers.map(m=>({name:m.name,role:m.role})));
+}
+
+// ATTENDANCE POLICY
+async function loadAttPolicy(){
+  const {data}=await db.from('settings').select('value').eq('key','attendance_policy').maybeSingle();
+  if(data?.value){
+    try{attPolicy=typeof data.value==='string'?JSON.parse(data.value):data.value;}
+    catch(e){dbg('AttPolicy parse error',e.message);}
+  }
+  dbg('AttPolicy loaded',attPolicy);
 }
 
 // DASHBOARD
@@ -736,18 +748,90 @@ async function loadSummary(year,month){
     </div>`;
   });
   if(staff.length){
-    h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Attendance — ${new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span></div>`;
-    h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--teal)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Rate</th></tr></thead><tbody>';
+    // ── Attendance policy calculations ──
+    // 1. Count working days in month (excl weekends if weekend_penalty applies)
+    // 2. Calculate allowed week-offs
+    // 3. Weekend absence = 2 day penalty if policy enabled
+
+    // Count weekdays and weekend days in month
+    let weekdaysInMonth=0, weekendDaysInMonth=0;
+    for(let d=1;d<=dim;d++){
+      const day=new Date(year,month,d).getDay();
+      if(day===0||day===6)weekendDaysInMonth++;
+      else weekdaysInMonth++;
+    }
+
+    // Allowed offs per person based on policy
+    function getAllowedOffs(policy,dim,weekdaysInMonth){
+      const weeks=Math.floor(dim/7);
+      if(policy.weekoff==='none')return 0;
+      if(policy.weekoff==='1_per_week')return weeks;
+      if(policy.weekoff==='1_per_2weeks')return Math.floor(weeks/2);
+      if(policy.weekoff==='1_per_month')return 1;
+      return 0;
+    }
+    const allowedOffs=getAllowedOffs(attPolicy,dim,weekdaysInMonth);
+
+    // Get all dated attendance records for penalty calc
+    const {data:attDated}=await db.from('attendance').select('staff_id,status,date').gte('date',sd).lte('date',es);
+
+    h+=`<div class="section-header" style="margin-top:8px">
+      <span class="section-title">Attendance — ${new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'})}</span>
+    </div>
+    <div class="card" style="margin-bottom:12px;background:var(--accent-light);border-color:rgba(193,123,63,0.2)">
+      <div style="font-size:12px;font-weight:600;color:var(--accent2);margin-bottom:6px">📋 Active Policy</div>
+      <div style="font-size:12px;color:var(--text2);line-height:1.7">
+        • Week-off allowance: <strong>${{none:'None','1_per_month':'1 per month','1_per_2weeks':'1 per 2 weeks','1_per_week':'1 per week'}[attPolicy.weekoff]||attPolicy.weekoff}</strong> (${allowedOffs} offs this month)<br>
+        • Weekend absence: <strong>${attPolicy.weekend_penalty?'2-day penalty':'Normal (1 day)'}</strong>
+      </div>
+    </div>`;
+    h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--teal)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Penalty</th><th>Net</th></tr></thead><tbody>';
     staff.forEach(s=>{
       const sa=(att||[]).filter(a=>a.staff_id===s.id);
-      const P=sa.filter(a=>a.status==='P').length,A=sa.filter(a=>a.status==='A').length,H=sa.filter(a=>a.status==='H').length;
-      const rate=Math.round((P+H*0.5)/dim*100);
-      const rc=rate>=80?'var(--teal)':rate>=60?'var(--gold)':'var(--red)';
-      h+=`<tr><td style="font-weight:600">${esc(s.name)}</td><td style="color:var(--teal);font-weight:700">${P}</td><td style="color:var(--red);font-weight:700">${A}</td><td style="color:var(--gold);font-weight:700">${H}</td><td><span style="font-family:var(--mono);font-weight:700;color:${rc}">${rate}%</span></td></tr>`;
+      const P=sa.filter(a=>a.status==='P').length;
+      const A=sa.filter(a=>a.status==='A').length;
+      const H=sa.filter(a=>a.status==='H').length;
+
+      // Weekend penalty: for each absent day on Sat/Sun, count as 2
+      let weekendPenalty=0;
+      if(attPolicy.weekend_penalty){
+        const saDated=(attDated||[]).filter(a=>a.staff_id===s.id&&a.status==='A');
+        saDated.forEach(a=>{
+          const day=new Date(a.date+'T00:00:00').getDay();
+          if(day===0||day===6)weekendPenalty++; // extra 1 (total becomes 2)
+        });
+      }
+
+      const totalAbsent=A+weekendPenalty; // adjusted absences
+      const netOffs=Math.max(0,totalAbsent-allowedOffs);
+      const effectiveWorked=P+H*0.5;
+      const rate=dim>0?Math.round((effectiveWorked/(dim-allowedOffs))*100):0;
+      const cappedRate=Math.min(100,rate);
+      const rc=cappedRate>=90?'var(--teal)':cappedRate>=75?'var(--gold)':'var(--red)';
+
+      h+=`<tr style="cursor:pointer" data-staff-id="${s.id}" data-staff-name="${esc(s.name)}" class="staff-cal-row">
+        <td style="font-weight:600">${esc(s.name)} <span style="font-size:10px;color:var(--accent)">📅</span></td>
+        <td style="color:var(--teal);font-weight:700">${P}</td>
+        <td style="color:var(--red);font-weight:700">${A}${weekendPenalty>0?`<span style="font-size:10px;color:var(--red)"> +${weekendPenalty}</span>`:''}${totalAbsent>allowedOffs&&allowedOffs>0?`<span style="font-size:10px;color:var(--text3)"> (${allowedOffs} off allowed)</span>`:''}</td>
+        <td style="color:var(--gold);font-weight:700">${H}</td>
+        <td style="font-size:12px;color:var(--red);font-weight:600">${netOffs>0?'-'+netOffs:'—'}</td>
+        <td><span style="font-family:var(--mono);font-weight:700;color:${rc}">${cappedRate}%</span></td>
+      </tr>`;
     });
     h+='</tbody></table></div>';
+    h+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6;padding:0 2px">
+      <strong>How it's calculated:</strong> Attendance % = Days present ÷ (Working days − Allowed offs). 
+      ${attPolicy.weekend_penalty?'Weekend absences count double. ':''}
+      Allowed offs this month: ${allowedOffs}.
+    </div>`;
   }
   el.innerHTML=h;
+  // Wire staff row clicks for calendar view
+  el.querySelectorAll('.staff-cal-row').forEach(row=>{
+    row.addEventListener('click',()=>{
+      openStaffCalendar(row.dataset.staffId, row.dataset.staffName, year, month, attDated||[]);
+    });
+  });
 }
 
 // NOTIFICATIONS
@@ -789,12 +873,126 @@ async function renderAdmin(){
   if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👥</div><div class="empty-text">No staff added yet.</div></div>';
   else h+=staff.map(s=>`<div class="staff-row"><div class="staff-avatar">${(s.name||'?')[0].toUpperCase()}</div><div style="flex:1"><div class="staff-name">${esc(s.name)}</div>${s.role?`<div class="staff-role-tag">${esc(s.role)}</div>`:''}</div><button class="btn btn-danger btn-xs" data-rmstaff="${s.id}">Remove</button></div>`).join('');
   el.innerHTML=h;
-  el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const [id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
-  el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
-  el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager?'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
-  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove staff?'))return;await db.from('staff').update({active:false}).eq('id',b.getAttribute('data-rmstaff'));await loadStaff();renderAdmin();});});
-  const oas=document.getElementById('open-add-staff');
-  if(oas)oas.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
+
+
+// ========================
+// STAFF ATTENDANCE CALENDAR
+// ========================
+let calStaffId=null, calYear=null, calMonth=null, calAttMap={}, calSelectedDate=null;
+
+async function openStaffCalendar(staffId, staffName, year, month, preloadedAtt){
+  calStaffId=staffId; calYear=year; calMonth=month; calSelectedDate=null;
+  document.getElementById('staff-cal-title').textContent=staffName;
+  document.getElementById('staff-cal-month').textContent=new Date(year,month).toLocaleDateString('en-IN',{month:'long',year:'numeric'});
+  document.getElementById('staff-cal-edit').style.display='none';
+
+  // Build att map from preloaded data or fetch fresh
+  let attRecords=preloadedAtt.filter(a=>a.staff_id===staffId);
+  if(!attRecords.length){
+    const sd=year+'-'+String(month+1).padStart(2,'0')+'-01';
+    const ed=fmt(new Date(year,month+1,0));
+    const {data}=await db.from('attendance').select('date,status').eq('staff_id',staffId).gte('date',sd).lte('date',ed);
+    attRecords=data||[];
+  }
+  calAttMap={};
+  attRecords.forEach(a=>calAttMap[a.date]=a.status);
+  renderCalGrid();
+  openModal('staff-cal-modal');
+}
+
+function renderCalGrid(){
+  const el=document.getElementById('staff-cal-grid');
+  const dim=new Date(calYear,calMonth+1,0).getDate();
+  const firstDay=new Date(calYear,calMonth,1).getDay(); // 0=Sun
+  const isAdmin=currentProfile.role==='admin';
+  const today=fmt(new Date());
+
+  // Day headers
+  const dayNames=['Su','Mo','Tu','We','Th','Fr','Sa'];
+  let h='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">';
+  dayNames.forEach(d=>h+=`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--text3);padding:4px 0">${d}</div>`);
+  h+='</div>';
+
+  // Calendar cells
+  h+='<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+
+  // Empty cells before first day
+  for(let i=0;i<firstDay;i++) h+='<div></div>';
+
+  for(let d=1;d<=dim;d++){
+    const dateStr=calYear+'-'+String(calMonth+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+    const status=calAttMap[dateStr]||null;
+    const dow=new Date(dateStr+'T00:00:00').getDay();
+    const isWeekend=dow===0||dow===6;
+    const isFuture=dateStr>today;
+    const isSelected=dateStr===calSelectedDate;
+
+    let bg='var(--surface2)';
+    let textCol='var(--text)';
+    let border='1px solid var(--border)';
+    let emoji='';
+
+    if(status==='P'){bg='var(--teal-light)';textCol='var(--teal)';border='1px solid rgba(42,138,122,0.3)';emoji='✓';}
+    else if(status==='A'){bg=isWeekend&&attPolicy.weekend_penalty?'rgba(192,57,43,0.18)':'var(--red-light)';textCol='var(--red)';border='1px solid rgba(192,57,43,0.3)';emoji=isWeekend&&attPolicy.weekend_penalty?'✕✕':'✕';}
+    else if(status==='H'){bg='var(--gold-light)';textCol='var(--gold)';border='1px solid rgba(212,160,23,0.3)';emoji='½';}
+    else if(isWeekend){bg='var(--surface3)';textCol='var(--text3)';}
+    if(isFuture){bg='var(--surface)';textCol='var(--border2)';border='1px solid var(--border)';}
+    if(isSelected){border='2px solid var(--accent)';}
+
+    const clickable=isAdmin&&!isFuture;
+    h+=`<div ${clickable?`data-cal-date="${dateStr}" class="cal-cell"`:''}
+      style="border-radius:8px;padding:6px 2px;text-align:center;background:${bg};border:${border};${clickable?'cursor:pointer;':''}${isSelected?'box-shadow:0 0 0 2px var(--accent-dim);':''}">
+      <div style="font-size:12px;font-weight:700;color:${textCol}">${d}</div>
+      <div style="font-size:9px;color:${textCol};height:12px;line-height:12px">${emoji}</div>
+    </div>`;
+  }
+  h+='</div>';
+
+  // Legend
+  h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px;background:var(--surface2);border-radius:var(--radius-sm)">
+    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--teal-light);border:1px solid rgba(42,138,122,0.3);display:inline-block"></span>Present</span>
+    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--red-light);border:1px solid rgba(192,57,43,0.3);display:inline-block"></span>Absent</span>
+    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--gold-light);border:1px solid rgba(212,160,23,0.3);display:inline-block"></span>Half Day</span>
+    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--surface3);display:inline-block"></span>Weekend</span>
+    ${isAdmin?'<span style="font-size:11px;color:var(--accent);font-weight:600">Tap a date to edit</span>':''}
+  </div>`;
+
+  el.innerHTML=h;
+
+  // Wire date clicks for admin edit
+  if(isAdmin){
+    el.querySelectorAll('.cal-cell').forEach(cell=>{
+      cell.addEventListener('click',()=>{
+        calSelectedDate=cell.dataset.calDate;
+        const d=new Date(calSelectedDate+'T00:00:00');
+        document.getElementById('staff-cal-edit-label').textContent='Edit: '+d.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'});
+        document.getElementById('staff-cal-edit').style.display='';
+        // Highlight active status
+        const s=calAttMap[calSelectedDate]||null;
+        ['P','A','H','X'].forEach(x=>{
+          const btn=document.getElementById('cal-edit-'+x);
+          btn.className='att-btn'+(s===x||(x==='X'&&!s)?' active-'+{P:'present',A:'absent',H:'halfday',X:'present'}[x]:'');
+          if(x==='X'){btn.className='att-btn';btn.style.color=!s?'var(--accent)':'var(--text3)';}
+        });
+        renderCalGrid(); // re-render to show selection
+      });
+    });
+  }
+}
+
+async function saveCalAttendance(status){
+  if(!calSelectedDate||!calStaffId)return;
+  if(status==='X'){
+    await db.from('attendance').delete().eq('staff_id',calStaffId).eq('date',calSelectedDate);
+    delete calAttMap[calSelectedDate];
+  } else {
+    await db.from('attendance').upsert({staff_id:calStaffId,date:calSelectedDate,status,marked_by:currentUser.id},{onConflict:'staff_id,date'});
+    calAttMap[calSelectedDate]=status;
+  }
+  toast('Attendance updated','success');
+  calSelectedDate=null;
+  document.getElementById('staff-cal-edit').style.display='none';
+  renderCalGrid();
 }
 
 // WIRE EVERYTHING
@@ -853,6 +1051,13 @@ document.addEventListener('DOMContentLoaded',()=>{
   // View comp close
   document.getElementById('view-comp-close-btn').addEventListener('click',()=>closeModal('view-comp-modal'));
 
+  // Staff calendar modal
+  document.getElementById('staff-cal-close-btn').addEventListener('click',()=>{closeModal('staff-cal-modal');calSelectedDate=null;});
+  document.getElementById('cal-edit-P').addEventListener('click',()=>saveCalAttendance('P'));
+  document.getElementById('cal-edit-A').addEventListener('click',()=>saveCalAttendance('A'));
+  document.getElementById('cal-edit-H').addEventListener('click',()=>saveCalAttendance('H'));
+  document.getElementById('cal-edit-X').addEventListener('click',()=>saveCalAttendance('X'));
+
   // Close modals on overlay tap
   document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('open');}));
 
@@ -865,5 +1070,29 @@ document.addEventListener('DOMContentLoaded',()=>{
   })();
 });
 </script>
+<!-- STAFF CALENDAR MODAL -->
+<div class="modal-overlay" id="staff-cal-modal">
+  <div class="modal" style="padding-bottom:36px">
+    <div class="modal-handle"></div>
+    <div id="staff-cal-header" style="margin-bottom:16px">
+      <div class="modal-title" id="staff-cal-title">Attendance Calendar</div>
+      <div style="font-size:12px;color:var(--text3)" id="staff-cal-month"></div>
+    </div>
+    <!-- Calendar grid -->
+    <div id="staff-cal-grid"></div>
+    <!-- Edit section (admin only) -->
+    <div id="staff-cal-edit" style="display:none;margin-top:16px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text2)" id="staff-cal-edit-label">Edit attendance for —</div>
+      <div class="attendance-toggle" style="width:100%;border-radius:var(--radius-sm)">
+        <button class="att-btn" id="cal-edit-P" style="flex:1;padding:11px">✓ Present</button>
+        <button class="att-btn" id="cal-edit-A" style="flex:1;padding:11px">✕ Absent</button>
+        <button class="att-btn" id="cal-edit-H" style="flex:1;padding:11px">½ Half Day</button>
+        <button class="att-btn" id="cal-edit-X" style="flex:1;padding:11px;color:var(--text3)">— Clear</button>
+      </div>
+    </div>
+    <button class="btn btn-ghost btn-full" style="margin-top:16px" id="staff-cal-close-btn">Close</button>
+  </div>
+</div>
+
 </body>
 </html>
