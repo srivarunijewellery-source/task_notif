@@ -626,37 +626,46 @@ function taskCard(t,isDone,comp,ds){
   return h;
 }
 function wireCards(container,ds){
-  // Expand/collapse task cards on click
-  container.querySelectorAll('[data-task-expand]').forEach(header=>{
-    header.addEventListener('click',e=>{
-      if(e.target.closest('button'))return;
-      const id=header.getAttribute('data-task-expand');
-      const detail=document.getElementById('td-'+id);
-      const card=document.getElementById('ti-'+id);
-      if(!detail)return;
-      const open=detail.style.display==='block';
-      detail.style.display=open?'none':'block';
-      const arrow=header.querySelector('.task-expand-arrow');
-      if(arrow){arrow.textContent=open?'▾':'▴';arrow.style.transform=open?'':'rotate(-90deg)';}
-      if(card)card.style.boxShadow=open?'':'0 4px 16px rgba(46,48,71,0.12)';
-    });
-  });
-  container.querySelectorAll('[data-oc]').forEach(el=>{
-    el.addEventListener('click',()=>{const [id,title]=el.getAttribute('data-oc').split('|');openComplete(id,title);});
-  });
-  container.querySelectorAll('[data-del]').forEach(el=>{el.addEventListener('click',()=>deleteTask(el.getAttribute('data-del')));});
-  container.querySelectorAll('[data-edit-task]').forEach(el=>{
-    el.addEventListener('click',async()=>{
-      const id=el.getAttribute('data-edit-task');
+  // Single delegated listener - most reliable approach for dynamic content
+  container.addEventListener('click',async function handler(e){
+    // Expand/collapse: click on task-top header
+    const expandHeader=e.target.closest('[data-task-expand]');
+    if(expandHeader&&!e.target.closest('button')){
+      const id=expandHeader.getAttribute('data-task-expand');
+      const detail=expandHeader.parentElement.querySelector('.task-detail');
+      if(detail){
+        const open=detail.style.display==='block';
+        detail.style.display=open?'none':'block';
+        const arrow=expandHeader.querySelector('.task-expand-arrow');
+        if(arrow)arrow.textContent=open?'▾':'▴';
+      }
+      return;
+    }
+    // Mark complete
+    const ocEl=e.target.closest('[data-oc]');
+    if(ocEl){const [id,title]=ocEl.getAttribute('data-oc').split('|');openComplete(id,title);return;}
+    // Delete
+    const delEl=e.target.closest('[data-del]');
+    if(delEl){deleteTask(delEl.getAttribute('data-del'));return;}
+    // Edit
+    const editEl=e.target.closest('[data-edit-task]');
+    if(editEl){
+      const id=editEl.getAttribute('data-edit-task');
       const {data:t}=await db.from('tasks').select('*').eq('id',id).single();
-      if(t)openAddTask(t);
-    });
-  });
-  container.querySelectorAll('[data-vc]').forEach(el=>{el.addEventListener('click',()=>viewComp(el.getAttribute('data-vc')));});
-  container.querySelectorAll('[data-undo]').forEach(el=>{
-    el.addEventListener('click',async()=>{await db.from('task_completions').delete().eq('id',el.getAttribute('data-undo'));toast('Undone','info');loadTasksList();renderDashboard();});
+      if(t)openAddTask(t);return;
+    }
+    // View completion
+    const vcEl=e.target.closest('[data-vc]');
+    if(vcEl){viewComp(vcEl.getAttribute('data-vc'));return;}
+    // Undo
+    const undoEl=e.target.closest('[data-undo]');
+    if(undoEl){
+      await db.from('task_completions').delete().eq('id',undoEl.getAttribute('data-undo'));
+      toast('Undone','info');loadTasksList();renderDashboard();return;
+    }
   });
 }
+
 
 function openComplete(id,title){
   completingTaskId=id;photoDataURL=null;
@@ -777,7 +786,14 @@ async function renderAttendance(){
 function updADL(){const e=document.getElementById('adl');if(e)e.textContent=fmtDisp(fmt(attDate));}
 async function loadAttList(){
   const el=document.getElementById('att-list');if(!el)return;
-  if(!staff.length){el.innerHTML=`<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">${currentProfile.role==='admin'?'No staff added. Go to Admin tab.':'No staff found.'}</div></div>`;return;}
+  // Always fetch fresh - don't rely on cached staff array
+  const {data:freshStaff,error:se}=await db.from('staff').select('*').eq('active',true).order('name');
+  dbg('loadAttList staff fetch',{count:freshStaff?.length,error:se?.message});
+  if(freshStaff&&freshStaff.length)staff=freshStaff;
+  if(!staff.length){
+    el.innerHTML='<div class="empty"><div style="font-size:32px;text-align:center;color:var(--border2);padding:20px">○</div><div style="text-align:center;font-size:14px;color:var(--text3);font-weight:500;padding:0 20px 20px">'+(currentProfile.role==='admin'?'No staff added yet. Use + Add Staff above.':'No staff found. Ask admin to add staff.')+'</div></div>';
+    return;
+  }
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const ds=fmt(attDate);
   const {data:rec}=await db.from('attendance').select('*').eq('date',ds);
@@ -1077,7 +1093,9 @@ async function renderAdmin(){
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
   if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No active managers yet.</div></div>';
   else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
-  h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Staff (${staff.length})</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>`;
+  // Refresh staff before rendering
+  await loadStaff();
+  h+='<div class="section-header" style="margin-top:8px"><span class="section-title">Staff ('+staff.length+')</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>';
   if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No staff added yet.</div></div>';
   else h+=staff.map(s=>{
     const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
