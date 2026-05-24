@@ -284,6 +284,15 @@
         <span style="color:var(--accent2);cursor:pointer;font-weight:600" id="goto-login">← Back to sign in</span>
       </div>
     </div>
+
+    <!-- DEBUG LOG -->
+    <div style="margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:0.5px">Debug Log</span>
+        <button id="clear-log-btn" style="font-size:11px;color:var(--text3);background:none;border:none;cursor:pointer">Clear</button>
+      </div>
+      <div id="debug-log" style="background:#0a0a0c;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:'DM Mono',monospace;font-size:11px;color:#7aff9a;max-height:220px;overflow-y:auto;line-height:1.7;word-break:break-all;white-space:pre-wrap;"></div>
+    </div>
   </div>
 </div>
 
@@ -567,6 +576,19 @@ function dataURLtoBlob(dataURL) {
   return new Blob([u8arr], { type: mime });
 }
 
+function dbg(msg, data) {
+  const el = document.getElementById('debug-log');
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString('en-IN', { hour12: false });
+  let line = '[' + ts + '] ' + msg;
+  if (data !== undefined) {
+    try { line += '\n  ' + JSON.stringify(data, null, 2).replace(/\n/g, '\n  '); }
+    catch(e) { line += '\n  ' + String(data); }
+  }
+  el.textContent += line + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
 function setLoading(btnId, loading) {
   const btn = document.getElementById(btnId);
   if (!btn) return;
@@ -594,11 +616,14 @@ function showLogin() {
 async function doLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value;
-  if (!email || !pass) { toast('Enter email and password', 'error'); return; }
+  dbg('doLogin() called', { email });
+  if (!email || !pass) { toast('Enter email and password', 'error'); dbg('Missing email or password'); return; }
   setLoading('login-btn', true);
+  dbg('Calling supabase.auth.signInWithPassword...');
   const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
   setLoading('login-btn', false);
-  if (error) { toast(error.message, 'error'); return; }
+  if (error) { toast(error.message, 'error'); dbg('Auth error', { message: error.message, status: error.status }); return; }
+  dbg('Auth success', { userId: data.user?.id, email: data.user?.email });
   await initApp(data.user);
 }
 
@@ -629,15 +654,20 @@ async function doLogout() {
 // ========================
 async function initApp(user) {
   currentUser = user;
+  dbg('initApp() called', { userId: user.id, email: user.email });
+  dbg('Fetching profile from profiles table...');
   const { data: profile, error: profileErr } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  dbg('Profile fetch result', { profile, error: profileErr });
   if (profileErr || !profile) {
-    // Profile may not exist yet (just signed up) — sign out gracefully
     toast('Profile not found. If you just signed up, wait for approval.', 'error');
+    dbg('Profile not found — signing out', { error: profileErr });
     await supabase.auth.signOut();
     return;
   }
-  if (profile.status === 'pending') { toast('Your account is pending admin approval.', 'error'); await supabase.auth.signOut(); return; }
-  if (profile.status === 'blocked') { toast('Your account has been blocked. Contact admin.', 'error'); await supabase.auth.signOut(); return; }
+  dbg('Profile found', { role: profile.role, status: profile.status });
+  if (profile.status === 'pending') { toast('Your account is pending admin approval.', 'error'); dbg('Status: pending — blocked'); await supabase.auth.signOut(); return; }
+  if (profile.status === 'blocked') { toast('Your account has been blocked. Contact admin.', 'error'); dbg('Status: blocked'); await supabase.auth.signOut(); return; }
+  dbg('Profile OK — loading app...');
   currentProfile = profile;
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').classList.add('visible');
@@ -1404,15 +1434,20 @@ async function removeStaff(id) {
 // (addEventListener instead of inline onclick — avoids CSP issues)
 // ========================
 document.addEventListener('DOMContentLoaded', () => {
+  dbg('DOM ready — wiring buttons');
   document.getElementById('login-btn').addEventListener('click', doLogin);
   document.getElementById('signup-btn').addEventListener('click', doSignup);
   document.getElementById('goto-signup').addEventListener('click', showSignup);
   document.getElementById('goto-login').addEventListener('click', showLogin);
+  document.getElementById('clear-log-btn').addEventListener('click', () => { document.getElementById('debug-log').textContent = ''; });
 
   // Allow Enter key on login fields
   document.getElementById('login-email').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   document.getElementById('signup-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doSignup(); });
+
+  dbg('Supabase URL: ' + SUPABASE_URL);
+  dbg('Checking existing session...');
 });
 </script>
 </body>
