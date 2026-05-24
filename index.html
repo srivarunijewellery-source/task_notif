@@ -10,25 +10,26 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.min.js"></script>
 <style>
 :root {
-  --bg:#f5f4f0; --surface:#fff; --surface2:#f9f8f5; --surface3:#f0ede6;
-  --border:#e8e4db; --border2:#d8d3c8;
-  --accent:#c17b3f; --accent2:#a5632a; --accent-dim:rgba(193,123,63,0.1); --accent-light:#fdf3e9;
-  --teal:#2a8a7a; --teal-dim:rgba(42,138,122,0.1); --teal-light:#edf7f5;
-  --gold:#d4a017; --gold-dim:rgba(212,160,23,0.1); --gold-light:#fdf8e6;
-  --red:#c0392b; --red-dim:rgba(192,57,43,0.08); --red-light:#fdf0ee;
-  --text:#1a1714; --text2:#6b6459; --text3:#a09890;
+  --bg:#f0f1f5; --surface:#ffffff; --surface2:#f5f6fa; --surface3:#eceef5;
+  --border:#dde0ed; --border2:#c8ccdf;
+  --accent:#3BBA9C; --accent2:#2ea588; --accent-dim:rgba(59,186,156,0.12); --accent-light:#edf9f6;
+  --purple:#43455C; --purple2:#2E3047; --purple-dim:rgba(67,69,92,0.1); --purple-light:#eeeef4;
+  --purple-mid:#707793; --purple-mid-dim:rgba(112,119,147,0.12);
+  --gold:#e8a020; --gold-dim:rgba(232,160,32,0.1); --gold-light:#fef7e6;
+  --red:#e05555; --red-dim:rgba(224,85,85,0.08); --red-light:#fdf0f0;
+  --text:#2E3047; --text2:#43455C; --text3:#707793;
   --radius:14px; --radius-sm:10px;
-  --shadow:0 2px 12px rgba(0,0,0,0.07); --shadow-md:0 4px 24px rgba(0,0,0,0.11);
+  --shadow:0 2px 12px rgba(46,48,71,0.07); --shadow-md:0 4px 24px rgba(46,48,71,0.12);
   --font:"Plus Jakarta Sans",sans-serif; --mono:"DM Mono",monospace;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px;-webkit-font-smoothing:antialiased;overflow-x:hidden}
 #auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:var(--bg);position:relative;overflow:hidden}
-#auth-screen::before{content:"";position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(193,123,63,0.09) 0%,transparent 70%);top:-120px;right:-120px;border-radius:50%;pointer-events:none}
-#auth-screen::after{content:"";position:absolute;width:350px;height:350px;background:radial-gradient(circle,rgba(42,138,122,0.07) 0%,transparent 70%);bottom:-80px;left:-80px;border-radius:50%;pointer-events:none}
+#auth-screen::before{content:"";position:absolute;width:500px;height:500px;background:radial-gradient(circle,rgba(59,186,156,0.09) 0%,transparent 70%);top:-120px;right:-120px;border-radius:50%;pointer-events:none}
+#auth-screen::after{content:"";position:absolute;width:350px;height:350px;background:radial-gradient(circle,rgba(67,69,92,0.06) 0%,transparent 70%);bottom:-80px;left:-80px;border-radius:50%;pointer-events:none}
 .auth-card{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);border-radius:24px;padding:32px 24px;position:relative;z-index:1;box-shadow:var(--shadow-md)}
 .auth-logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}
-.auth-logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),#e8953a);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 4px 12px rgba(193,123,63,0.3);flex-shrink:0}
+.auth-logo-icon{width:44px;height:44px;background:linear-gradient(135deg,var(--accent),#2ea588);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;box-shadow:0 4px 12px rgba(59,186,156,0.25);flex-shrink:0}
 .auth-logo-text{font-size:18px;font-weight:800;letter-spacing:-0.3px}
 .auth-logo-sub{font-size:11px;color:var(--text3);font-weight:500}
 .auth-title{font-size:21px;font-weight:800;margin-bottom:5px;letter-spacing:-0.3px}
@@ -36,41 +37,41 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .field{margin-bottom:13px}
 .field label{display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px}
 .field input,.field select,.field textarea{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:11px 14px;color:var(--text);font-family:var(--font);font-size:14px;font-weight:500;outline:none;transition:border-color 0.2s,box-shadow 0.2s;-webkit-appearance:none;appearance:none}
-.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim)}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--purple);box-shadow:0 0 0 3px var(--accent-dim)}
 .field textarea{resize:vertical;min-height:72px;line-height:1.5}
 .field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a09890' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px;cursor:pointer}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:12px 18px;border-radius:var(--radius-sm);font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer;border:none;transition:all 0.15s;white-space:nowrap;letter-spacing:-0.1px}
 .btn:disabled{opacity:0.5;cursor:not-allowed}
 .btn:active:not(:disabled){transform:scale(0.97)}
-.btn-primary{background:linear-gradient(135deg,var(--accent),#d4853d);color:#fff;box-shadow:0 2px 10px rgba(193,123,63,0.3)}
-.btn-primary:hover:not(:disabled){box-shadow:0 4px 16px rgba(193,123,63,0.4)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),#2ea588);color:#fff;box-shadow:0 2px 10px rgba(59,186,156,0.25)}
+.btn-primary:hover:not(:disabled){box-shadow:0 4px 16px rgba(59,186,156,0.35)}
 .btn-full{width:100%}
 .btn-ghost{background:var(--surface2);color:var(--text2);border:1.5px solid var(--border)}
 .btn-ghost:hover:not(:disabled){background:var(--surface3);color:var(--text)}
 .btn-danger{background:var(--red-light);color:var(--red);border:1.5px solid rgba(192,57,43,0.2)}
-.btn-success{background:var(--teal-light);color:var(--teal);border:1.5px solid rgba(42,138,122,0.2)}
+.btn-success{background:var(--accent-light);color:var(--accent);border:1.5px solid rgba(59,186,156,0.2)}
 .btn-sm{padding:8px 14px;font-size:13px}
 .btn-xs{padding:5px 10px;font-size:12px;border-radius:7px}
 #toast-container{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:8px;width:calc(100vw - 32px);max-width:420px}
 .toast{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;animation:slideDown 0.25s ease;box-shadow:var(--shadow-md)}
-.toast.success{border-color:rgba(42,138,122,0.4);background:var(--teal-light);color:var(--teal)}
+.toast.success{border-color:rgba(42,138,122,0.4);background:var(--accent-light);color:var(--accent)}
 .toast.error{border-color:rgba(192,57,43,0.3);background:var(--red-light);color:var(--red)}
 .toast.info{border-color:rgba(193,123,63,0.3);background:var(--accent-light);color:var(--accent2)}
 @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 #app{display:none;flex-direction:column;min-height:100vh;max-width:480px;margin:0 auto;background:var(--bg)}
 #app.visible{display:flex}
 .topbar{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--border);padding:11px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 8px rgba(0,0,0,0.05)}
-.topbar-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--accent),#e8953a);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.topbar-icon{width:34px;height:34px;background:linear-gradient(135deg,var(--accent),#2ea588);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
 .topbar-left{display:flex;align-items:center;gap:10px}
 .topbar-title{font-size:15px;font-weight:800;letter-spacing:-0.3px}
 .topbar-role{font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.6px}
 .topbar-right{display:flex;align-items:center;gap:8px}
 .notif-btn{position:relative;width:36px;height:36px;border-radius:9px;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px}
 .notif-badge{position:absolute;top:-4px;right:-4px;min-width:17px;height:17px;background:var(--red);border-radius:9px;font-size:10px;font-weight:700;color:#fff;display:flex;align-items:center;justify-content:center;padding:0 3px;border:2px solid var(--surface)}
-.avatar-btn{width:36px;height:36px;border-radius:9px;background:var(--accent-light);border:1.5px solid rgba(193,123,63,0.3);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--accent)}
+.avatar-btn{width:36px;height:36px;border-radius:9px;background:var(--purple-light);border:1.5px solid rgba(67,69,92,0.2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;font-weight:800;color:var(--purple)}
 .tabs{display:flex;background:var(--surface);border-top:1px solid var(--border);position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:100;box-shadow:0 -2px 12px rgba(0,0,0,0.07)}
 .tab{flex:1;min-width:0;padding:10px 4px 8px;text-align:center;font-size:10px;font-weight:700;color:var(--text3);cursor:pointer;transition:all 0.18s;white-space:nowrap;border-top:2px solid transparent}
-.tab.active{color:var(--accent);border-top-color:var(--accent);background:var(--accent-light)}
+.tab.active{color:var(--purple);border-top-color:var(--purple);background:var(--accent-light)}
 .tab-icon{font-size:19px;display:block;margin-bottom:2px}
 .page{display:none;flex:1;overflow-y:auto;padding:14px 14px 90px}
 .page.active{display:block}
@@ -82,24 +83,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px;box-shadow:var(--shadow)}
 .stat-label{font-size:10px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px}
 .stat-value{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
-.stat-value.green{color:var(--teal)} .stat-value.gold{color:var(--gold)} .stat-value.red{color:var(--red)} .stat-value.accent{color:var(--accent)}
+.stat-value.green{color:var(--accent)} .stat-value.gold{color:var(--gold)} .stat-value.red{color:var(--red)} .stat-value.accent{color:var(--purple)}
 .stat-sub{font-size:11px;color:var(--text3);margin-top:3px;font-weight:500}
 .task-item{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:9px;box-shadow:var(--shadow)}
-.task-item.completed{border-color:rgba(42,138,122,0.3);background:var(--teal-light)}
+.task-item.completed{border-color:rgba(59,186,156,0.25);background:var(--accent-light)}
 .task-item.carried{border-color:rgba(212,160,23,0.3);background:var(--gold-light)}
 .task-top{display:flex;align-items:flex-start;gap:11px}
 .task-check{width:23px;height:23px;border-radius:7px;border:2px solid var(--border2);background:var(--surface2);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
-.task-check.checked{background:var(--teal);border-color:var(--teal)}
+.task-check.checked{background:var(--accent);border-color:var(--accent)}
 .task-check.checked::after{content:"✓";color:#fff;font-size:13px;font-weight:800}
 .task-body{flex:1;min-width:0}
 .task-title{font-size:14px;font-weight:600;line-height:1.4}
 .task-title.done{text-decoration:line-through;color:var(--text3)}
 .task-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;align-items:center}
 .badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700}
-.badge-recurring{background:var(--accent-light);color:var(--accent)}
+.badge-recurring{background:var(--accent-light);color:var(--purple)}
 .badge-onetime{background:var(--gold-light);color:var(--gold)}
 .badge-carried{background:var(--gold-light);color:var(--gold)}
-.badge-done{background:var(--teal-light);color:var(--teal)}
+.badge-done{background:var(--accent-light);color:var(--accent)}
 .badge-pending{background:var(--surface3);color:var(--text3)}
 .badge-urgent{background:var(--red-light);color:var(--red)}
 .badge-high{background:var(--gold-light);color:var(--gold)}
@@ -110,7 +111,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .date-nav{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 11px;margin-bottom:14px;box-shadow:var(--shadow)}
 .date-nav-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text2);cursor:pointer;font-size:16px;width:32px;height:32px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700}
 .date-label{flex:1;text-align:center;font-size:14px;font-weight:700}
-.date-today-btn{font-size:11px;font-weight:700;color:var(--accent);cursor:pointer;padding:4px 10px;border-radius:6px;background:var(--accent-light);border:none}
+.date-today-btn{font-size:11px;font-weight:700;color:var(--purple);cursor:pointer;padding:4px 10px;border-radius:6px;background:var(--accent-light);border:none}
 .modal-overlay{position:fixed;inset:0;background:rgba(26,23,20,0.45);z-index:500;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.2s;backdrop-filter:blur(2px)}
 .modal-overlay.open{opacity:1;pointer-events:all}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:22px 22px 0 0;width:100%;max-width:480px;padding:6px 18px 30px;max-height:91vh;overflow-y:auto;transform:translateY(20px);transition:transform 0.25s;box-shadow:0 -4px 28px rgba(0,0,0,0.13)}
@@ -123,7 +124,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .staff-role-tag{font-size:11px;color:var(--text3);font-weight:500}
 .attendance-toggle{display:flex;border-radius:7px;overflow:hidden;border:1.5px solid var(--border);gap:1px;background:var(--border)}
 .att-btn{padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:var(--surface2);color:var(--text3);transition:all 0.15s}
-.att-btn.active-present{background:var(--teal);color:#fff}
+.att-btn.active-present{background:var(--accent);color:#fff}
 .att-btn.active-absent{background:var(--red);color:#fff}
 .att-btn.active-halfday{background:var(--gold);color:#fff}
 .data-table{width:100%;border-collapse:collapse;font-size:13px}
@@ -132,7 +133,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .data-table tr:last-child td{border-bottom:none}
 .table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
 .notif-item{display:flex;gap:11px;padding:13px;background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius-sm);margin-bottom:8px;box-shadow:var(--shadow)}
-.notif-item.unread{border-color:rgba(193,123,63,0.35);background:var(--accent-light)}
+.notif-item.unread{border-color:rgba(59,186,156,0.3);background:var(--accent-light)}
 .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-top:5px}
 .notif-dot.read{background:var(--border2)}
 .notif-text{font-size:13px;line-height:1.5;font-weight:500}
@@ -151,24 +152,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .empty-text{font-size:14px;line-height:1.6;font-weight:500}
 .progress-bar{height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;margin-top:7px}
 .progress-fill{height:100%;border-radius:3px;transition:width 0.5s ease}
-.progress-fill.green{background:var(--teal)} .progress-fill.gold{background:var(--gold)} .progress-fill.red{background:var(--red)} .progress-fill.accent{background:var(--accent)}
+.progress-fill.green{background:var(--accent)} .progress-fill.gold{background:var(--gold)} .progress-fill.red{background:var(--red)} .progress-fill.accent{background:var(--accent)}
 .file-drop{border:2px dashed var(--border2);border-radius:var(--radius-sm);padding:22px 16px;text-align:center;cursor:pointer;transition:all 0.2s;background:var(--surface2)}
-.file-drop:hover{border-color:var(--accent);background:var(--accent-light)}
+.file-drop:hover{border-color:var(--purple);background:var(--accent-light)}
 .file-drop p{font-size:13px;color:var(--text3);margin-top:5px;font-weight:500}
 .file-preview img{width:100%;max-height:200px;object-fit:cover;border-radius:9px;margin-top:9px}
 .spinner{width:17px;height:17px;border:2.5px solid rgba(255,255,255,0.35);border-top-color:#fff;border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block}
-.spinner-dark{width:22px;height:22px;border:2.5px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block}
+.spinner-dark{width:22px;height:22px;border:2.5px solid var(--border2);border-top-color:var(--purple);border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-overlay{display:flex;align-items:center;justify-content:center;padding:50px}
-.greeting-banner{background:linear-gradient(135deg,var(--accent),#d4853d);border-radius:var(--radius);padding:17px;margin-bottom:14px;color:#fff;position:relative;overflow:hidden}
+.greeting-banner{background:linear-gradient(135deg,var(--accent),#2ea588);border-radius:var(--radius);padding:17px;margin-bottom:14px;color:#fff;position:relative;overflow:hidden}
 .greeting-banner::after{content:"✦";position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:46px;opacity:0.12}
 .greeting-text{font-size:17px;font-weight:800;letter-spacing:-0.3px}
 .greeting-sub{font-size:12px;opacity:0.85;margin-top:3px;font-weight:500}
 .month-chip-row{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;margin-bottom:14px}
 .month-chip-row::-webkit-scrollbar{display:none}
 .month-chip{padding:6px 13px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border);color:var(--text3);background:var(--surface);white-space:nowrap;transition:all 0.15s}
-.month-chip.active{background:var(--accent-light);color:var(--accent);border-color:rgba(193,123,63,0.4)}
-.debug-log{background:#111;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px;color:#7aff9a;max-height:190px;overflow-y:auto;line-height:1.7;word-break:break-all;white-space:pre-wrap;margin-top:6px}
+.month-chip.active{background:var(--accent-light);color:var(--purple);border-color:rgba(59,186,156,0.4)}
+.debug-log{background:#1a1b2e;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px;color:#7aff9a;max-height:190px;overflow-y:auto;line-height:1.7;word-break:break-all;white-space:pre-wrap;margin-top:6px}
 </style>
 </head>
 <body>
@@ -177,7 +178,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 <div id="auth-screen">
   <div class="auth-card">
     <div class="auth-logo">
-      <div class="auth-logo-icon">✦</div>
+      <div class="auth-logo-icon" style="font-size:16px;font-weight:900;color:#fff;font-family:var(--mono);letter-spacing:-1px">VT</div>
       <div><div class="auth-logo-text">Varuni Tasks</div><div class="auth-logo-sub">Manager Portal</div></div>
     </div>
     <div id="login-form">
@@ -186,7 +187,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
       <div class="field"><label>Email</label><input type="email" id="login-email" placeholder="you@email.com" autocomplete="email"></div>
       <div class="field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password"></div>
       <button class="btn btn-primary btn-full" id="login-btn">Sign In</button>
-      <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text3);font-weight:500">Need access? <span id="goto-signup" style="color:var(--accent);cursor:pointer;font-weight:700">Request access →</span></div>
+      <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text3);font-weight:500">Need access? <span id="goto-signup" style="color:var(--purple);cursor:pointer;font-weight:700">Request access →</span></div>
     </div>
     <div id="signup-form" style="display:none">
       <div class="auth-title">Request Access</div>
@@ -198,7 +199,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
         <select id="signup-role"><option value="manager">Manager</option><option value="admin">Admin</option></select>
       </div>
       <button class="btn btn-primary btn-full" id="signup-btn">Submit Request</button>
-      <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text3);font-weight:500"><span id="goto-login" style="color:var(--accent);cursor:pointer;font-weight:700">← Back to sign in</span></div>
+      <div style="text-align:center;margin-top:14px;font-size:13px;color:var(--text3);font-weight:500"><span id="goto-login" style="color:var(--purple);cursor:pointer;font-weight:700">← Back to sign in</span></div>
     </div>
     <div style="margin-top:18px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
@@ -213,7 +214,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 <div id="app">
   <div class="topbar">
     <div class="topbar-left">
-      <div class="topbar-icon">✦</div>
+      <div class="topbar-icon" style="font-size:18px;letter-spacing:-1px;font-weight:900;color:#fff;font-family:var(--mono)">VT</div>
       <div><div class="topbar-title">Varuni Tasks</div><div class="topbar-role" id="topbar-role">—</div></div>
     </div>
     <div class="topbar-right">
@@ -232,12 +233,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <div class="page" id="page-notifications"></div>
   <div class="page" id="page-admin"></div>
   <div class="tabs" id="tab-bar">
-    <div class="tab active" data-tab="dashboard"><span class="tab-icon">⚡</span>Today</div>
-    <div class="tab" data-tab="tasks"><span class="tab-icon">✅</span>Tasks</div>
-    <div class="tab" data-tab="attendance"><span class="tab-icon">📋</span>Attend.</div>
-    <div class="tab" data-tab="summary"><span class="tab-icon">📊</span>Summary</div>
-    <div class="tab" data-tab="notifications"><span class="tab-icon">🔔</span>Alerts</div>
-    <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon">⚙️</span>Admin</div>
+    <div class="tab active" data-tab="dashboard"><span class="tab-icon">◈</span>Today</div>
+    <div class="tab" data-tab="tasks"><span class="tab-icon">◻</span>Tasks</div>
+    <div class="tab" data-tab="attendance"><span class="tab-icon">◷</span>Attend.</div>
+    <div class="tab" data-tab="summary"><span class="tab-icon">▦</span>Summary</div>
+    <div class="tab" data-tab="notifications"><span class="tab-icon">◉</span>Alerts</div>
+    <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon">◎</span>Admin</div>
   </div>
 </div>
 
@@ -248,11 +249,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     <div class="field"><label>Note (optional)</label><textarea id="complete-note" placeholder="Add a note..."></textarea></div>
     <div class="field"><label>Photo proof (optional)</label>
       <div class="file-drop" id="photo-drop">
-        <div style="font-size:28px">📷</div>
+        <div style="font-size:28px">↑</div>
         <p>Tap to choose photo</p>
         <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
-          <button type="button" class="btn btn-ghost btn-xs" id="photo-camera-btn">📸 Camera</button>
-          <button type="button" class="btn btn-ghost btn-xs" id="photo-gallery-btn">🖼 Gallery</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="photo-camera-btn">Camera</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="photo-gallery-btn">Gallery</button>
         </div>
       </div>
       <input type="file" id="photo-input-camera" accept="image/*" capture="environment" style="display:none">
@@ -264,7 +265,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-ghost" style="flex:1" id="complete-cancel-btn">Cancel</button>
-      <button class="btn btn-success" style="flex:1" id="complete-submit-btn">✓ Mark Done</button>
+      <button class="btn btn-success" style="flex:1" id="complete-submit-btn">Mark Done</button>
     </div>
   </div>
 </div>
@@ -465,7 +466,12 @@ async function carryForward(){
   dbg('Carried forward',data.length);
 }
 
-async function loadStaff(){const {data,error}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');dbg('loadStaff',{count:data?.length,error});staff=data||[];}
+async function loadStaff(){
+  const {data,error}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');
+  dbg('loadStaff',{count:data?.length,error:error?.message});
+  staff=data||[];
+  dbg('Staff list',staff.map(s=>s.name));
+}
 async function loadManagers(){
   const {data,error}=await db.from('profiles').select('id,name,email,role,status').eq('status','active').in('role',['admin','manager']);
   dbg('loadManagers',{count:data?.length,error:error?.message,data:data});
@@ -525,13 +531,13 @@ async function renderDashboard(){
   const pending=todayTasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===today));
   const completed=todayTasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===today));
   let h='';
-  h+=`<div class="greeting-banner"><div class="greeting-text">${gr}, ${esc(fn)}! 👋</div><div class="greeting-sub">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})}</div></div>`;
+  h+=`<div class="greeting-banner"><div class="greeting-text">${gr}, ${esc(fn)}.</div><div class="greeting-sub">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})}</div></div>`;
   h+=`<div class="stat-grid">
     <div class="stat-card"><div class="stat-label">Tasks Today</div><div class="stat-value ${pc}">${done}<span style="font-size:15px;opacity:0.45">/${total}</span></div><div class="progress-bar"><div class="progress-fill ${pc}" style="width:${pct}%"></div></div><div class="stat-sub">${pct}% complete</div></div>
     <div class="stat-card"><div class="stat-label">Staff Present</div><div class="stat-value accent">${pres+half}<span style="font-size:15px;opacity:0.45">/${staff.length}</span></div><div class="progress-bar"><div class="progress-fill accent" style="width:${staff.length>0?Math.round((pres+half*0.5)/staff.length*100):0}%"></div></div><div class="stat-sub">${half>0?half+' half-day':'today'}</div></div>
   </div>`;
   h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span>${isAdmin?'<button class="btn btn-primary btn-sm" id="dash-add-btn">+ Add Task</button>':''}</div>`;
-  if(!pending.length)h+='<div class="empty"><div class="empty-icon">🎉</div><div class="empty-text">All tasks done for today!</div></div>';
+  if(!pending.length)h+='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--accent)">✓✓</div><div class="empty-text">All tasks done for today!</div></div>';
   else{pending.slice(0,4).forEach(t=>{h+=taskCard(t,false,null,today);});if(pending.length>4)h+=`<button class="btn btn-ghost btn-full" id="dash-viewall-btn" style="margin-top:4px">View all ${pending.length} pending →</button>`;}
   if(completed.length){
     h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${completed.length})</span></div>`;
@@ -565,7 +571,7 @@ async function loadTasksList(){
   const tasks=(data||[]).filter(t=>t.task_type==='recurring'||t.scheduled_date===ds).filter(t=>isAdmin||t.assigned_to===currentUser.id);
   const pending=tasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===ds));
   const done=tasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===ds));
-  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">No tasks for this day.</div></div>';return;}
+  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">—</div><div class="empty-text">No tasks for this day.</div></div>';return;}
   let h='';
   if(pending.length){h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${done.length})</span></div>`;done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
@@ -575,32 +581,64 @@ async function loadTasksList(){
 
 function taskCard(t,isDone,comp,ds){
   const isAdmin=currentProfile.role==='admin',isOwn=t.assigned_to===currentUser.id;
-  const pb=t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--border)';
+  const pb=t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'transparent';
   const an=t.profiles?.name||managers.find(m=>m.id===t.assigned_to)?.name||'—';
+  const cat=t.category_id?taskCategories.find(c=>c.id===t.category_id):null;
   const cls=isDone?'completed':t.carried_forward?'carried':'';
-  let h=`<div class="task-item ${cls}" style="border-left:3px solid ${pb}">
-    <div class="task-top">
-      <div class="task-check ${isDone?'checked':''}" ${!isDone&&isOwn?'data-oc="'+t.id+'|'+esc(t.title)+'"':''}></div>
-      <div class="task-body">
-        <div class="task-title ${isDone?'done':''}">${esc(t.title)}</div>
-        <div class="task-meta">
-          <span class="badge ${t.task_type==='recurring'?'badge-recurring':'badge-onetime'}">${t.task_type==='recurring'?'🔁 Daily':'📅 Once'}</span>
-          ${t.category_id?(()=>{const cat=taskCategories.find(c=>c.id===t.category_id);return cat?`<span class="badge" style="background:${cat.color||'var(--surface3)'};color:${cat.text_color||'var(--text2)'}">🏷 ${esc(cat.name)}</span>`:'';})():''}
-          ${t.priority!=='normal'?`<span class="badge badge-${t.priority}">${t.priority==='urgent'?'🔴':'🟡'} ${t.priority}</span>`:''}
-          ${t.carried_forward?'<span class="badge badge-carried">↩ Carried</span>':''}
-          ${isDone?'<span class="badge badge-done">✓ Done</span>':''}
-          ${isAdmin?`<span class="assignee-tag">→ ${esc(an)}</span>`:''}
-        </div>
-        ${t.description?`<div style="font-size:12px;color:var(--text3);margin-top:5px;line-height:1.4">${esc(t.description)}</div>`:''}
-      </div>
-    </div>`;
-  if(!isDone&&isOwn)h+=`<div class="task-actions"><button class="btn btn-success btn-sm" data-oc="${t.id}|${esc(t.title)}">✓ Mark Complete</button>${isAdmin?`<button class="btn btn-ghost btn-xs" data-edit-task="${t.id}">✏ Edit</button><button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button>`:''}</div>`;
-  else if(!isDone&&isAdmin&&!isOwn)h+=`<div class="task-actions"><button class="btn btn-ghost btn-xs" data-edit-task="${t.id}">✏ Edit</button><button class="btn btn-danger btn-xs" data-del="${t.id}">Delete</button></div>`;
-  else if(isDone&&comp)h+=`<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="${comp.id}">👁 Details</button>${isAdmin?`<button class="btn btn-danger btn-xs" data-undo="${comp.id}">Undo</button>`:''}</div>`;
-  return h+'</div>';
+  const prDot=t.priority==='urgent'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
+    :t.priority==='high'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
+    :'<span style="width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0;margin-top:6px;display:inline-block"></span>';
+  let h='<div class="task-item '+cls+'" data-task-expand="'+t.id+'" style="cursor:pointer">'
+    +'<div class="task-top">'
+    +prDot
+    +'<div class="task-body" style="padding-left:8px">'
+    +'<div class="task-title'+(isDone?' done':'')+'">'+esc(t.title)+'</div>'
+    +'<div class="task-meta">'
+    +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+    +(t.task_type==='recurring'?'<span class="badge badge-recurring">Daily</span>':'<span class="badge badge-onetime">Once</span>')
+    +(isDone?'<span class="badge badge-done">Done</span>':'')
+    +(t.carried_forward?'<span class="badge badge-carried">Carried</span>':'')
+    +(isAdmin?'<span class="assignee-tag">'+esc(an)+'</span>':'')
+    +'</div>'
+    +'</div>'
+    +'<div style="font-size:10px;color:var(--text3);flex-shrink:0;margin-left:4px;font-weight:700">▾</div>'
+    +'</div>'
+    +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+    +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Type</div><div style="font-size:13px;font-weight:600">'+( t.task_type==='recurring'?'Recurring':'One-time')+'</div></div>'
+    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Priority</div><div style="font-size:13px;font-weight:600;color:'+(t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--text)')+'">'+t.priority.charAt(0).toUpperCase()+t.priority.slice(1)+'</div></div>'
+    +(t.scheduled_date?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Date</div><div style="font-size:13px;font-weight:600">'+fmtDisp(t.scheduled_date)+'</div></div>':'')
+    +(isAdmin?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Assigned</div><div style="font-size:13px;font-weight:600">'+esc(an)+'</div></div>':'')
+    +'</div>';
+  if(!isDone&&isOwn){
+    h+='<div class="task-actions">'
+      +'<button class="btn btn-success btn-sm" data-oc="'+t.id+'|'+esc(t.title)+'" style="flex:1">Mark Complete</button>'
+      +(isAdmin?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button><button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
+      +'</div>';
+  } else if(!isDone&&isAdmin&&!isOwn){
+    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button><button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button></div>';
+  } else if(isDone&&comp){
+    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details</button>'+(isAdmin?'<button class="btn btn-danger btn-xs" data-undo="'+comp.id+'">Undo</button>':'')+'</div>';
+  }
+  h+='</div></div>';
+  return h;
 }
-
 function wireCards(container,ds){
+  // Expand/collapse task cards on click
+  container.querySelectorAll('[data-task-expand]').forEach(card=>{
+    card.addEventListener('click',e=>{
+      // Don't expand if clicking a button/interactive element
+      if(e.target.closest('button')||e.target.closest('[data-oc]')||e.target.closest('[data-edit-task]')||e.target.closest('[data-del]')||e.target.closest('[data-vc]')||e.target.closest('[data-undo]'))return;
+      const id=card.getAttribute('data-task-expand');
+      const detail=document.getElementById('td-'+id);
+      if(!detail)return;
+      const open=detail.style.display!=='none';
+      detail.style.display=open?'none':'block';
+      const arrow=card.querySelector('[style*="▾"]');
+      if(arrow)arrow.textContent=open?'▾':'▴';
+    });
+  });
   container.querySelectorAll('[data-oc]').forEach(el=>{
     el.addEventListener('click',()=>{const [id,title]=el.getAttribute('data-oc').split('|');openComplete(id,title);});
   });
@@ -735,17 +773,17 @@ function renderAttendance(){
 function updADL(){const e=document.getElementById('adl');if(e)e.textContent=fmtDisp(fmt(attDate));}
 async function loadAttList(){
   const el=document.getElementById('att-list');if(!el)return;
-  if(!staff.length){el.innerHTML=`<div class="empty"><div class="empty-icon">👥</div><div class="empty-text">${currentProfile.role==='admin'?'No staff added. Go to Admin tab.':'No staff found.'}</div></div>`;return;}
+  if(!staff.length){el.innerHTML=`<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">${currentProfile.role==='admin'?'No staff added. Go to Admin tab.':'No staff found.'}</div></div>`;return;}
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const ds=fmt(attDate);
   const {data:rec}=await db.from('attendance').select('*').eq('date',ds);
   const am={};(rec||[]).forEach(r=>am[r.staff_id]=r.status);
   const canEdit=true;
   const P=Object.values(am).filter(s=>s==='P').length,A=Object.values(am).filter(s=>s==='A').length,H=Object.values(am).filter(s=>s==='H').length;
-  let h='<div style="margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">✓ Mark All Present</button></div>';
+  let h='<div style="margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">Mark All Present</button></div>';
   h+=staff.map(s=>{
     const st=am[s.id]||null;
-    const av=st==='P'?'background:var(--teal-light);color:var(--teal)':st==='A'?'background:var(--red-light);color:var(--red)':st==='H'?'background:var(--gold-light);color:var(--gold)':'';
+    const av=st==='P'?'background:var(--accent-light);color:var(--accent)':st==='A'?'background:var(--red-light);color:var(--red)':st==='H'?'background:var(--gold-light);color:var(--gold)':'';
     return`<div class="staff-row">
       <div class="staff-avatar" style="${av}">${(s.name||'?')[0].toUpperCase()}</div>
       <div style="flex:1;min-width:0"><div class="staff-name">${esc(s.name)}</div>${s.role?`<div class="staff-role-tag">${esc(s.role)}</div>`:''}</div>
@@ -758,7 +796,7 @@ async function loadAttList(){
   }).join('');
   h+=`<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Summary — ${fmtDisp(ds)}</span></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">
-      <div><div style="font-size:22px;font-weight:800;color:var(--teal)">${P}</div><div style="font-size:11px;color:var(--text3);font-weight:600">Present</div></div>
+      <div><div style="font-size:22px;font-weight:800;color:var(--accent)">${P}</div><div style="font-size:11px;color:var(--text3);font-weight:600">Present</div></div>
       <div><div style="font-size:22px;font-weight:800;color:var(--red)">${A}</div><div style="font-size:11px;color:var(--text3);font-weight:600">Absent</div></div>
       <div><div style="font-size:22px;font-weight:800;color:var(--gold)">${H}</div><div style="font-size:11px;color:var(--text3);font-weight:600">Half</div></div>
       <div><div style="font-size:22px;font-weight:800;color:var(--text3)">${staff.length-P-A-H}</div><div style="font-size:11px;color:var(--text3);font-weight:600">Unmarked</div></div>
@@ -805,7 +843,7 @@ async function loadSummary(year,month){
   const mm={};(mgrs||[]).forEach(m=>{mm[m.id]={name:m.name,done:0,total:0};});
   (tasks||[]).forEach(t=>{if(mm[t.assigned_to])mm[t.assigned_to].total++;});
   (comps||[]).forEach(c=>{const t=(tasks||[]).find(x=>x.id===c.task_id);if(t&&mm[t.assigned_to])mm[t.assigned_to].done++;});
-  let h='<div class="section-header"><span class="section-title">Manager Performance</span><span class="section-title" style="color:var(--teal)">Target: 80%</span></div>';
+  let h='<div class="section-header"><span class="section-title">Manager Performance</span><span class="section-title" style="color:var(--accent)">Target: 80%</span></div>';
   Object.values(mm).forEach(m=>{
     const pct=m.total>0?Math.round(m.done/m.total*100):0;
     const col=pct>=80?'green':pct>=60?'gold':'red';
@@ -855,7 +893,7 @@ async function loadSummary(year,month){
         • Weekend absence: <strong>${attPolicy.weekend_penalty?'2-day penalty':'Normal (1 day)'}</strong>
       </div>
     </div>`;
-    h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--teal)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Penalty</th><th>Net</th></tr></thead><tbody>';
+    h+='<div class="table-wrap"><table class="data-table"><thead><tr><th>Name</th><th style="color:var(--accent)">P</th><th style="color:var(--red)">A</th><th style="color:var(--gold)">½</th><th>Penalty</th><th>Net</th></tr></thead><tbody>';
     staff.forEach(s=>{
       // Use staff's own weekoff setting, fall back to global policy
       const staffWeekoff=s.weekoff_allowance||attPolicy.weekoff||'1_per_week';
@@ -880,16 +918,18 @@ async function loadSummary(year,month){
       const effectiveWorked=P+H*0.5;
       const rate=dim>0?Math.round((effectiveWorked/(dim-allowedOffs))*100):0;
       const cappedRate=Math.min(100,rate);
-      const rc=cappedRate>=90?'var(--teal)':cappedRate>=75?'var(--gold)':'var(--red)';
-
-      h+=`<tr style="cursor:pointer" data-staff-id="${s.id}" data-staff-name="${esc(s.name)}" class="staff-cal-row">
-        <td style="font-weight:600">${esc(s.name)} <span style="font-size:10px;color:var(--accent)">📅</span></td>
-        <td style="color:var(--teal);font-weight:700">${P}</td>
-        <td style="color:var(--red);font-weight:700">${A}${weekendPenalty>0?`<span style="font-size:10px;color:var(--red)"> +${weekendPenalty}</span>`:''}${totalAbsent>allowedOffs&&allowedOffs>0?`<span style="font-size:10px;color:var(--text3)"> (${allowedOffs} off allowed)</span>`:''}</td>
-        <td style="color:var(--gold);font-weight:700">${H}</td>
-        <td style="font-size:12px;color:var(--red);font-weight:600">${netOffs>0?'-'+netOffs:'—'}</td>
-        <td><span style="font-family:var(--mono);font-weight:700;color:${rc}">${cappedRate}%</span></td>
-      </tr>`;
+      const rc=cappedRate>=90?'var(--accent)':cappedRate>=75?'var(--gold)':'var(--red)';
+      // Total days for salary = P + H*0.5 - net penalty
+      const salaryDays=(effectiveWorked-Math.max(0,netOffs)).toFixed(1);
+      h+='<tr style="cursor:pointer" data-staff-id="'+s.id+'" data-staff-name="'+esc(s.name)+'" class="staff-cal-row">'
+        +'<td style="font-weight:700;color:var(--text)">'+esc(s.name)+' <span style="font-size:9px;color:var(--accent);font-weight:700">▦</span></td>'
+        +'<td style="color:var(--accent);font-weight:700">'+P+'</td>'
+        +'<td style="color:var(--red);font-weight:700">'+A+'</td>'
+        +'<td style="color:var(--red);font-weight:600;font-size:12px">'+(weekendPenalty>0?weekendPenalty:'—')+'</td>'
+        +'<td style="color:var(--purple-mid);font-weight:600">'+allowedOffs+'</td>'
+        +'<td><span style="font-family:var(--mono);font-weight:800;font-size:14px">'+salaryDays+'</span></td>'
+        +'<td><span style="font-family:var(--mono);font-weight:700;color:'+rc+'">'+cappedRate+'%</span></td>'
+        +'</tr>';
     });
     h+='</tbody></table></div>';
     h+=`<div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6;padding:0 2px">
@@ -929,7 +969,7 @@ function renderCatsList(){
   el.innerHTML=taskCategories.map(c=>{
     const style='background:'+c.color+';color:'+c.text_color+';';
     return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
-      +'<span class="badge" style="'+style+'flex:1;justify-content:flex-start;padding:7px 12px;font-size:13px">🏷 '+esc(c.name)+'</span>'
+      +'<span class="badge" style="'+style+'flex:1;justify-content:flex-start;padding:7px 12px;font-size:13px"> '+esc(c.name)+'</span>'
       +'<button class="btn btn-danger btn-xs" data-del-cat="'+c.id+'">✕</button>'
       +'</div>';
   }).join('');
@@ -969,7 +1009,7 @@ async function renderNotifications(){
   document.getElementById('mark-read-btn').addEventListener('click',async()=>{await db.from('task_notifications').update({read:true}).eq('user_id',currentUser.id);toast('All read','info');renderNotifications();loadNotifBadge();});
   const {data}=await db.from('task_notifications').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}).limit(50);
   const el2=document.getElementById('notif-list');
-  if(!data||!data.length){el2.innerHTML='<div class="empty"><div class="empty-icon">🔔</div><div class="empty-text">No notifications yet.</div></div>';return;}
+  if(!data||!data.length){el2.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">◉</div><div class="empty-text">No notifications yet.</div></div>';return;}
   el2.innerHTML=data.map(n=>`<div class="notif-item ${n.read?'':'unread'}"><div class="notif-dot ${n.read?'read':''}"></div><div><div class="notif-text">${esc(n.message)}</div><div class="notif-time">${timeAgo(n.created_at)}</div></div></div>`).join('');
   loadNotifBadge();
 }
@@ -987,13 +1027,13 @@ async function renderAdmin(){
   let h='';
   if(pending&&pending.length){
     h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;
-    pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">✓ Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">✕ Reject</button></div></div>`;});
+    pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">Reject</button></div></div>`;});
   }
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
-  if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👤</div><div class="empty-text">No active managers yet.</div></div>';
+  if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No active managers yet.</div></div>';
   else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Staff (${staff.length})</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>`;
-  if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon">👥</div><div class="empty-text">No staff added yet.</div></div>';
+  if(!staff.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No staff added yet.</div></div>';
   else h+=staff.map(s=>{
     const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
     const wkOpts=['none','1_per_month','1_per_2weeks','1_per_week'];
@@ -1044,7 +1084,7 @@ async function renderAdmin(){
     +'<option value="1_per_week"'+(policy.weekoff==='1_per_week'?' selected':'')+'>1 per week</option>'
     +'</select></div>'
     +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:11px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
-    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">'
+    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--purple);cursor:pointer">'
     +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2 day penalty</div>'
     +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat/Sun counts as 2 days off</div></div>'
     +'</div>'
@@ -1122,7 +1162,7 @@ function renderCalGrid(){
     let border='1px solid var(--border)';
     let emoji='';
 
-    if(status==='P'){bg='var(--teal-light)';textCol='var(--teal)';border='1px solid rgba(42,138,122,0.3)';emoji='✓';}
+    if(status==='P'){bg='var(--accent-light)';textCol='var(--accent)';border='1px solid rgba(59,186,156,0.25)';emoji='✓';}
     else if(status==='A'){bg=isWeekend&&attPolicy.weekend_penalty?'rgba(192,57,43,0.18)':'var(--red-light)';textCol='var(--red)';border='1px solid rgba(192,57,43,0.3)';emoji=isWeekend&&attPolicy.weekend_penalty?'✕✕':'✕';}
     else if(status==='H'){bg='var(--gold-light)';textCol='var(--gold)';border='1px solid rgba(212,160,23,0.3)';emoji='½';}
     else if(isWeekend){bg='var(--surface3)';textCol='var(--text3)';}
@@ -1144,11 +1184,11 @@ function renderCalGrid(){
 
   // Legend
   h+=`<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px;background:var(--surface2);border-radius:var(--radius-sm)">
-    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--teal-light);border:1px solid rgba(42,138,122,0.3);display:inline-block"></span>Present</span>
+    <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent-light);border:1px solid rgba(59,186,156,0.25);display:inline-block"></span>Present</span>
     <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--red-light);border:1px solid rgba(192,57,43,0.3);display:inline-block"></span>Absent</span>
     <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--gold-light);border:1px solid rgba(212,160,23,0.3);display:inline-block"></span>Half Day</span>
     <span style="font-size:11px;font-weight:600;display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:3px;background:var(--surface3);display:inline-block"></span>Weekend</span>
-    ${isAdmin?'<span style="font-size:11px;color:var(--accent);font-weight:600">Tap a date to edit</span>':''}
+    ${isAdmin?'<span style="font-size:11px;color:var(--purple);font-weight:600">Tap a date to edit</span>':''}
   </div>`;
 
   el.innerHTML=h;
@@ -1248,9 +1288,12 @@ document.addEventListener('DOMContentLoaded',()=>{
     const name=document.getElementById('new-staff-name').value.trim();
     const role=document.getElementById('new-staff-role').value.trim();
     if(!name){toast('Name required','error');return;}
+    // Duplicate check
+    const dup=staff.find(s=>s.name.toLowerCase()===name.toLowerCase());
+    if(dup){toast('Staff member "'+name+'" already exists. Use a differentiator (e.g. "Priya - Sales").','error');return;}
     const {error}=await db.from('staff').insert({name,role:role||null,active:true});
     if(error){toast(error.message,'error');return;}
-    toast('Staff added!','success');closeModal('add-staff-modal');await loadStaff();
+    toast(name+' added to staff!','success');closeModal('add-staff-modal');await loadStaff();
     // Refresh whichever page is active
     if(document.getElementById('page-admin').classList.contains('active'))renderAdmin();
     if(document.getElementById('page-attendance').classList.contains('active'))renderAttendance();
