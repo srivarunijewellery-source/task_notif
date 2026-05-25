@@ -86,8 +86,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .stat-value{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
 .stat-value.green{color:var(--accent)} .stat-value.gold{color:var(--gold)} .stat-value.red{color:var(--red)} .stat-value.accent{color:var(--purple)}
 .stat-sub{font-size:11px;color:var(--text3);margin-top:3px;font-weight:500}
-.task-item{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:10px;box-shadow:var(--shadow)}
-.task-item.completed{border-color:rgba(59,186,156,0.3);background:var(--surface);border-left:3px solid var(--accent)!important;}
+.task-item{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:10px;box-shadow:var(--shadow);position:relative;}
+.task-item.completed{border-color:rgba(59,186,156,0.35);background:var(--surface);border-left:3px solid var(--accent)!important;opacity:0.85;}
 .task-item.carried{border-color:rgba(212,160,23,0.3);background:var(--gold-light)}
 .task-top{display:flex;align-items:flex-start;gap:11px}
 .task-check{width:23px;height:23px;border-radius:7px;border:2px solid var(--border2);background:var(--surface2);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
@@ -1725,31 +1725,26 @@ async function loadMgrReviewBody(){
   const avgRating=totalRated>0?(allRated.reduce((s,r)=>s+(r.rating||0),0)/totalRated).toFixed(1):null;
 
   // ── Timeliness calculation ──
-  // On time: task completed on its scheduled/original day (not carried forward)
-  // Delayed: one-time task that was carried_forward=true when completed
-  // Incomplete: tasks that should have appeared this month but have no completion
-  const completedTaskIds=new Set((allComps||[]).map(c=>c.task_id));
+  // On time: completed without carried_forward flag
+  // Delayed: completed but task had carried_forward=true
+  // Incomplete: tasks assigned this month with zero completions this month
   let onTime=0, delayed=0, incomplete=0;
   (allComps||[]).forEach(c=>{
     if(c.tasks?.carried_forward)delayed++;
     else onTime++;
   });
-  // Count recurring tasks that should have appeared (each weekday/day) but weren't completed
-  // Simplified: count distinct days where recurring tasks weren't completed
+  // Incomplete = assigned tasks that have NO completion at all this month
+  const completedTaskIds=new Set((allComps||[]).map(c=>c.task_id));
   const today=istToday();
-  const daysInPeriod=[];
-  for(let d=new Date(sd+'T00:00:00');fmt(d)<=es&&fmt(d)<=today;d.setDate(d.getDate()+1)){
-    daysInPeriod.push(fmt(new Date(d)));
-  }
   (myAllTasks||[]).forEach(t=>{
+    if(completedTaskIds.has(t.id))return; // has at least one completion this month
     if(t.task_type==='onetime'){
-      if(t.scheduled_date>=sd&&t.scheduled_date<=es&&!completedTaskIds.has(t.id))incomplete++;
-    } else if(t.task_type==='recurring'){
-      daysInPeriod.forEach(day=>{
-        if(!taskShowsOnDate(t,day))return;
-        const completedOnDay=(allComps||[]).some(c=>c.task_id===t.id&&c.completed_date===day);
-        if(!completedOnDay)incomplete++;
-      });
+      // One-time: incomplete if scheduled this month and past due
+      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<=today)incomplete++;
+    } else {
+      // Recurring: count as 1 incomplete unit if it never got completed this month at all
+      // (not counting per-day — just whether the task was ever done this month)
+      incomplete++;
     }
   });
 
