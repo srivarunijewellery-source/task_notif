@@ -277,9 +277,26 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     </div>
     <div class="field"><label>Assign To *</label><select id="new-task-assignee"><option value="">Select manager...</option></select></div>
     <div class="field"><label>Type</label>
-      <select id="new-task-type"><option value="onetime">One-time (specific day)</option><option value="recurring">Recurring (every day)</option></select>
+      <select id="new-task-type">
+        <option value="onetime">One-time (specific day)</option>
+        <option value="recurring_daily">Recurring — Every day</option>
+        <option value="recurring_weekdays">Recurring — Weekdays only (Mon–Fri)</option>
+        <option value="recurring_weekly">Recurring — Specific days of week</option>
+      </select>
     </div>
     <div class="field" id="new-task-date-field"><label>Date *</label><input type="date" id="new-task-date"></div>
+    <div class="field" id="recur-days-field" style="display:none">
+      <label>Repeat on</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap" id="recur-days-picker">
+        <button type="button" class="day-chip" data-day="Mon">Mon</button>
+        <button type="button" class="day-chip" data-day="Tue">Tue</button>
+        <button type="button" class="day-chip" data-day="Wed">Wed</button>
+        <button type="button" class="day-chip" data-day="Thu">Thu</button>
+        <button type="button" class="day-chip" data-day="Fri">Fri</button>
+        <button type="button" class="day-chip" data-day="Sat">Sat</button>
+        <button type="button" class="day-chip" data-day="Sun">Sun</button>
+      </div>
+    </div>
     <div class="field"><label>Priority</label>
       <select id="new-task-priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
     </div>
@@ -562,7 +579,7 @@ async function renderDashboard(){
   const isAdmin=currentProfile.role==='admin';
   const today=fmt(new Date());
   const {data:allTasks}=await db.from('tasks').select('*,task_completions(*)');
-  let todayTasks=(allTasks||[]).filter(t=>t.task_type==='recurring'||t.scheduled_date===today);
+  let todayTasks=(allTasks||[]).filter(t=>taskShowsOnDate(t,today));
   if(!isAdmin)todayTasks=todayTasks.filter(t=>t.assigned_to===currentUser.id);
   const total=todayTasks.length;
   const done=todayTasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===today)).length;
@@ -614,7 +631,7 @@ async function loadTasksList(){
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const ds=fmt(taskDate),isAdmin=currentProfile.role==='admin';
   const {data}=await db.from('tasks').select('*,task_completions(*),profiles:assigned_to(name,id)').order('priority',{ascending:false});
-  const tasks=(data||[]).filter(t=>t.task_type==='recurring'||t.scheduled_date===ds).filter(t=>isAdmin||t.assigned_to===currentUser.id);
+  const tasks=(data||[]).filter(t=>taskShowsOnDate(t,ds)).filter(t=>isAdmin||t.assigned_to===currentUser.id||t.created_by===currentUser.id);
   const pending=tasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===ds));
   const done=tasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===ds));
   if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">—</div><div class="empty-text">No tasks for this day.</div></div>';return;}
@@ -641,7 +658,18 @@ function taskCard(t,isDone,comp,ds){
     +'<div class="task-title'+(isDone?' done':'')+'">'+esc(t.title)+'</div>'
     +'<div class="task-meta">'
     +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
-    +(t.task_type==='recurring'?'<span class="badge badge-recurring">Daily</span>':'<span class="badge badge-onetime">Once</span>')
+    +(t.task_type==='recurring'
+      ?(()=>{
+        const sub=t.recur_subtype||'recurring_daily';
+        if(sub==='recurring_weekdays')return '<span class="badge badge-recurring">Weekdays</span>';
+        if(sub==='recurring_weekly'){
+          let days=t.recur_days;
+          if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
+          return '<span class="badge badge-recurring">'+(days&&days.length?days.join(', '):'Weekly')+'</span>';
+        }
+        return '<span class="badge badge-recurring">Daily</span>';
+      })()
+      :'<span class="badge badge-onetime">Once</span>')
     +(isDone?'<span class="badge badge-done">Done</span>':'')
     +(t.carried_forward?'<span class="badge badge-carried">Carried</span>':'')
     +(isAdmin?'<span class="assignee-tag">'+esc(an)+'</span>':'')
@@ -652,7 +680,19 @@ function taskCard(t,isDone,comp,ds){
     +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
     +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Type</div><div style="font-size:13px;font-weight:600">'+( t.task_type==='recurring'?'Recurring':'One-time')+'</div></div>'
+    +(()=>{
+      let typeLabel='One-time';
+      if(t.task_type==='recurring'){
+        const sub=t.recur_subtype||'recurring_daily';
+        if(sub==='recurring_weekdays')typeLabel='Weekdays (Mon–Fri)';
+        else if(sub==='recurring_weekly'){
+          let days=t.recur_days;
+          if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
+          typeLabel='Weekly: '+(days&&days.length?days.join(', '):'?');
+        } else typeLabel='Daily';
+      }
+      return '<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Recurrence</div><div style="font-size:13px;font-weight:600">'+typeLabel+'</div></div>';
+    })()
     +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Priority</div><div style="font-size:13px;font-weight:600;color:'+(t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--text)')+'">'+t.priority.charAt(0).toUpperCase()+t.priority.slice(1)+'</div></div>'
     +(t.scheduled_date?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Date</div><div style="font-size:13px;font-weight:600">'+fmtDisp(t.scheduled_date)+'</div></div>':'')
     +(isAdmin?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Assigned</div><div style="font-size:13px;font-weight:600">'+esc(an)+'</div></div>':'')
@@ -672,11 +712,34 @@ function taskCard(t,isDone,comp,ds){
       +'</div>';
   } else if(isDone&&comp){
     const canUndo=isAdmin||(isOwn&&comp.completed_date===ds);
-    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details</button>'+(canUndo?'<button class="btn btn-ghost btn-xs" data-undo="'+comp.id+'">Undo</button>':'')+'</div>';
+    const ratingBadge=comp.rating?('<span style="color:var(--gold);font-size:12px;font-weight:700">'+('★'.repeat(comp.rating))+'</span>'):'';
+    h+='<div class="task-actions" style="align-items:center">'
+      +ratingBadge
+      +'<button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details'+(comp.rating?' · Rated':'')+'</button>'
+      +(canUndo?'<button class="btn btn-ghost btn-xs" data-undo="'+comp.id+'">Undo</button>':'')
+      +'</div>';
   }
   h+='</div></div>';
   return h;
 }
+// ── Recurring task day filter ──
+const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function taskShowsOnDate(t,dateStr){
+  if(t.task_type==='onetime')return t.scheduled_date===dateStr;
+  // recurring — check subtype
+  const sub=t.recur_subtype||'recurring_daily';
+  if(sub==='recurring_daily')return true;
+  const dow=new Date(dateStr+'T00:00:00').getDay(); // 0=Sun
+  if(sub==='recurring_weekdays')return dow>=1&&dow<=5;
+  if(sub==='recurring_weekly'){
+    let days=t.recur_days;
+    if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){return true;}}
+    if(!days||!days.length)return true;
+    return days.includes(DAY_NAMES[dow]);
+  }
+  return true; // fallback: always show
+}
+
 function wireCards(container,ds){
   // Guard: only attach one listener per container element
   if(container._wiredCards)return;
@@ -756,11 +819,49 @@ async function submitComplete(){
 async function viewComp(id){
   const {data:c}=await db.from('task_completions').select('*,profiles:completed_by(name)').eq('id',id).single();
   if(!c)return;
-  let h=`<div style="font-size:13px;color:var(--text2);margin-bottom:13px;font-weight:500">Completed by <strong>${esc(c.profiles?.name||'?')}</strong> on ${c.completed_date}</div>`;
-  if(c.note)h+=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:13px;margin-bottom:11px;line-height:1.5">${esc(c.note)}</div>`;
-  if(c.photo_url)h+=`<img src="${c.photo_url}" style="width:100%;border-radius:9px;cursor:pointer" onclick="window.open('${c.photo_url}')">`;
-  if(!c.note&&!c.photo_url)h+='<div style="color:var(--text3);text-align:center;padding:20px;font-size:13px">No notes or photo.</div>';
+  const isAdmin=currentProfile.role==='admin';
+  const ratingLabels=['','Needs improvement','Below average','Average','Good','Excellent'];
+  let h='';
+  // Header
+  h+='<div style="font-size:13px;color:var(--text2);margin-bottom:12px;font-weight:500">Completed by <strong>'+esc(c.profiles?.name||'?')+'</strong> on '+c.completed_date+'</div>';
+  // Manager note
+  if(c.note)h+='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:13px;margin-bottom:10px;line-height:1.5"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:5px">Manager Note</div>'+esc(c.note)+'</div>';
+  // Photo
+  if(c.photo_url){const pu=c.photo_url;h+='<img src="'+pu+'" style="width:100%;border-radius:9px;cursor:pointer;margin-bottom:10px" onclick="window.open(this.src)">';}
+  if(!c.note&&!c.photo_url)h+='<div style="color:var(--text3);text-align:center;padding:16px 0;font-size:13px">No notes or photo attached.</div>';
+  // Rating section
+  if(c.rating){
+    const stars='★'.repeat(c.rating)+'☆'.repeat(5-c.rating);
+    h+='<div style="margin-top:10px;padding:12px;background:var(--gold-light);border:1px solid rgba(232,160,32,0.2);border-radius:9px">'
+      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--gold);margin-bottom:5px">Admin Rating</div>'
+      +'<div style="font-size:22px;color:var(--gold);letter-spacing:2px;margin-bottom:4px">'+stars+'</div>'
+      +'<div style="font-size:13px;font-weight:700;color:var(--text)">'+ratingLabels[c.rating]+'</div>'
+      +(c.admin_comment?'<div style="font-size:13px;color:var(--text2);margin-top:8px;line-height:1.5;font-style:italic">"'+esc(c.admin_comment)+'"</div>':'')
+      +'</div>';
+  } else if(isAdmin){
+    h+='<div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:9px;text-align:center;font-size:13px;color:var(--text3)">Not yet rated</div>';
+  }
   document.getElementById('view-comp-body').innerHTML=h;
+  // Show Rate button for admin
+  const closeBtn=document.getElementById('view-comp-close-btn');
+  let rateBtn=document.getElementById('view-comp-rate-btn');
+  if(!rateBtn){
+    rateBtn=document.createElement('button');
+    rateBtn.id='view-comp-rate-btn';
+    rateBtn.className='btn btn-gold btn-full';
+    rateBtn.style.marginTop='10px';
+    closeBtn.parentElement.insertBefore(rateBtn,closeBtn);
+  }
+  if(isAdmin){
+    rateBtn.style.display='';
+    rateBtn.textContent=c.rating?'Edit Rating':'★ Rate this completion';
+    rateBtn.onclick=()=>{
+      closeModal('view-comp-modal');
+      openRateModal(id, c.profiles?.name||'?', c.completed_date, c.rating||0, c.admin_comment||'');
+    };
+  } else {
+    rateBtn.style.display='none';
+  }
   openModal('view-comp-modal');
 }
 function openAddTask(task){
@@ -772,9 +873,17 @@ function openAddTask(task){
   document.getElementById('new-task-title').value=isEdit?task.title:'';
   document.getElementById('new-task-desc').value=isEdit?(task.description||''):'';
   document.getElementById('new-task-date').value=isEdit?(task.scheduled_date||fmt(taskDate||new Date())):fmt(taskDate||new Date());
-  document.getElementById('new-task-type').value=isEdit?task.task_type:'onetime';
+  const taskTypeVal=isEdit?(task.task_type||'onetime'):'onetime';
+  document.getElementById('new-task-type').value=taskTypeVal;
   document.getElementById('new-task-priority').value=isEdit?task.priority:'normal';
-  document.getElementById('new-task-date-field').style.display=(isEdit?task.task_type:'onetime')==='recurring'?'none':'';
+  document.getElementById('new-task-date-field').style.display=taskTypeVal==='onetime'?'':'none';
+  document.getElementById('recur-days-field').style.display=taskTypeVal==='recurring_weekly'?'':'none';
+  // Restore day chip selections for edit mode
+  document.querySelectorAll('.day-chip').forEach(c=>c.classList.remove('active'));
+  if(isEdit&&task.recur_days){
+    const days=Array.isArray(task.recur_days)?task.recur_days:JSON.parse(task.recur_days||'[]');
+    days.forEach(d=>{const chip=document.querySelector('.day-chip[data-day="'+d+'"]');if(chip)chip.classList.add('active');});
+  }
   const sel=document.getElementById('new-task-assignee');
   const isAdmin=currentProfile.role==='admin';
   if(isAdmin){
@@ -802,12 +911,20 @@ async function submitNewTask(){
   const editId=document.getElementById('edit-task-id').value;
   const isEdit=!!editId;
   if(!title){toast('Task title required','error');return;}
+  // Collect selected recur days for weekly recurring
+  let recurDays=null;
+  if(type==='recurring_weekly'){
+    recurDays=Array.from(document.querySelectorAll('.day-chip.active')).map(c=>c.dataset.day);
+    if(!recurDays.length){toast('Please select at least one day for weekly recurring','error');return;}
+  }
   // For managers, assignee is always themselves (set by disabled select)
-  const finalAssignee = assignee || currentUser.id;
+  const finalAssignee=assignee||currentUser.id;
   if(!finalAssignee){toast('Please assign to a manager','error');return;}
   if(type==='onetime'&&!date){toast('Date required for one-time tasks','error');return;}
+  // Normalise task_type — store all recurring variants as 'recurring' in DB, with recur_days differentiating
+  const dbType=type==='onetime'?'onetime':'recurring';
   setBtnLoading('add-task-submit-btn',true);
-  const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:type,
+  const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:dbType,recur_subtype:type,recur_days:recurDays?JSON.stringify(recurDays):null,
     scheduled_date:type==='onetime'?date:null,priority,category_id:catId};
   let error;
   if(isEdit){
@@ -986,11 +1103,21 @@ async function loadSummary(year,month){
     const overallPct=totalTasks>0?Math.round(totalDone/totalTasks*100):0;
     const col=overallPct>=80?'accent':overallPct>=60?'gold':'red';
 
-    h+='<div class="card" style="margin-bottom:14px">'
+    // Fetch ratings for this manager's completions
+  const {data:ratings}=await db.from('task_completions')
+    .select('rating,admin_comment,completed_date,task_id')
+    .eq('completed_by',myId)
+    .not('rating','is',null)
+    .gte('completed_date',sd).lte('completed_date',es);
+  const avgRating=ratings&&ratings.length?
+    (ratings.reduce((s,r)=>s+r.rating,0)/ratings.length).toFixed(1):null;
+
+  h+='<div class="card" style="margin-bottom:14px">'
       +'<div class="card-header"><span class="card-title">'+monthLabel+'</span>'
       +'<span style="font-family:var(--mono);font-size:20px;font-weight:800;color:'+(overallPct>=80?'var(--accent)':overallPct>=60?'var(--gold)':'var(--red)')+'">'+overallPct+'%</span>'
       +'</div>'
       +'<div style="font-size:13px;color:var(--text2);margin-bottom:6px">'+totalDone+' of '+totalTasks+' tasks completed</div>'
+      +(avgRating?'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:8px 10px;background:var(--gold-light);border-radius:8px"><span style="font-size:18px;color:var(--gold)">'+'★'.repeat(Math.round(parseFloat(avgRating)))+'☆'.repeat(5-Math.round(parseFloat(avgRating)))+'</span><span style="font-size:13px;font-weight:700;color:var(--text)">'+avgRating+' avg · '+ratings.length+' rated</span></div>':'')
       +'<div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+overallPct+'%"></div></div>'
       +'</div>';
 
@@ -1248,6 +1375,50 @@ async function renderAdmin(){
 }
 
 // ========================
+// TASK RATING (admin)
+// ========================
+const RATING_LABELS=['','Needs improvement','Below average','Average','Good','Excellent'];
+
+function openRateModal(compId, managerName, date, currentRating, currentComment){
+  document.getElementById('rate-comp-id').value=compId;
+  document.getElementById('rate-task-label').textContent=managerName+' · '+date;
+  document.getElementById('rate-comment').value=currentComment;
+  // Set stars
+  setStarRating(currentRating);
+  openModal('rate-modal');
+}
+
+function setStarRating(val){
+  document.querySelectorAll('.star-btn').forEach(b=>{
+    const bv=parseInt(b.dataset.val);
+    b.classList.toggle('active', bv<=val);
+  });
+  document.getElementById('rating-label').textContent=val>0?RATING_LABELS[val]:'Tap a star to rate';
+}
+
+async function submitRating(){
+  const compId=document.getElementById('rate-comp-id').value;
+  const comment=document.getElementById('rate-comment').value.trim();
+  const activeStars=document.querySelectorAll('.star-btn.active');
+  const rating=activeStars.length;
+  if(!rating){toast('Please select a star rating','error');return;}
+  setBtnLoading('rate-submit-btn',true);
+  const {error}=await db.from('task_completions').update({
+    rating,
+    admin_comment:comment||null,
+    rated_by:currentUser.id,
+    rated_at:new Date().toISOString()
+  }).eq('id',compId);
+  setBtnLoading('rate-submit-btn',false);
+  if(error){toast(error.message,'error');return;}
+  toast('Rating saved!','success');
+  closeModal('rate-modal');
+  // Refresh completions list
+  loadTasksList();
+  renderDashboard();
+}
+
+// ========================
 // STAFF ATTENDANCE CALENDAR
 // ========================
 let calStaffId=null, calYear=null, calMonth=null, calAttMap={}, calSelectedDate=null;
@@ -1415,7 +1586,16 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('complete-submit-btn').addEventListener('click',submitComplete);
 
   // Add task modal
-  document.getElementById('new-task-type').addEventListener('change',function(){document.getElementById('new-task-date-field').style.display=this.value==='recurring'?'none':'';});
+  document.getElementById('new-task-type').addEventListener('change',function(){
+    const v=this.value;
+    document.getElementById('new-task-date-field').style.display=v==='onetime'?'':'none';
+    document.getElementById('recur-days-field').style.display=v==='recurring_weekly'?'':'none';
+  });
+  // Day chip toggle
+  document.getElementById('recur-days-picker').addEventListener('click',e=>{
+    const chip=e.target.closest('.day-chip');
+    if(chip)chip.classList.toggle('active');
+  });
   document.getElementById('manage-cats-btn').addEventListener('click',()=>{renderCatsList();openModal('cats-modal');});
   document.getElementById('cats-close-btn').addEventListener('click',()=>{closeModal('cats-modal');populateCategorySelect('new-task-category',document.getElementById('new-task-category').value);});
   document.getElementById('add-cat-btn').addEventListener('click',addCategory);
@@ -1444,6 +1624,28 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   // View comp close
   document.getElementById('view-comp-close-btn').addEventListener('click',()=>closeModal('view-comp-modal'));
+  document.getElementById('rate-cancel-btn').addEventListener('click',()=>closeModal('rate-modal'));
+  document.getElementById('rate-submit-btn').addEventListener('click',submitRating);
+  // Star picker hover + click
+  document.getElementById('star-picker').addEventListener('mouseover',e=>{
+    const b=e.target.closest('.star-btn');
+    if(!b)return;
+    const hv=parseInt(b.dataset.val);
+    document.querySelectorAll('.star-btn').forEach(s=>s.classList.toggle('active',parseInt(s.dataset.val)<=hv));
+    document.getElementById('rating-label').textContent=RATING_LABELS[hv]||'';
+  });
+  document.getElementById('star-picker').addEventListener('mouseleave',()=>{
+    // Restore to currently selected value
+    const active=document.querySelectorAll('.star-btn.active');
+    // Re-read from hidden input context
+    setStarRating(active.length);
+  });
+  document.getElementById('star-picker').addEventListener('click',e=>{
+    const b=e.target.closest('.star-btn');
+    if(!b)return;
+    const val=parseInt(b.dataset.val);
+    setStarRating(val);
+  });
 
   // Staff calendar modal
   document.getElementById('staff-cal-close-btn').addEventListener('click',()=>{closeModal('staff-cal-modal');calSelectedDate=null;});
@@ -1464,6 +1666,35 @@ document.addEventListener('DOMContentLoaded',()=>{
   })();
 });
 </script>
+<!-- RATE COMPLETION MODAL (admin only) -->
+<div class="modal-overlay" id="rate-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Rate Completion</div>
+    <div id="rate-task-label" style="font-size:13px;color:var(--text2);margin-bottom:16px;font-weight:500;line-height:1.4"></div>
+    <input type="hidden" id="rate-comp-id">
+    <div class="field">
+      <label>Rating</label>
+      <div style="display:flex;gap:8px;margin-top:4px" id="star-picker">
+        <button type="button" class="star-btn" data-val="1">★</button>
+        <button type="button" class="star-btn" data-val="2">★</button>
+        <button type="button" class="star-btn" data-val="3">★</button>
+        <button type="button" class="star-btn" data-val="4">★</button>
+        <button type="button" class="star-btn" data-val="5">★</button>
+      </div>
+      <div id="rating-label" style="font-size:12px;color:var(--text3);margin-top:6px;font-weight:600;min-height:16px"></div>
+    </div>
+    <div class="field">
+      <label>Feedback (optional)</label>
+      <textarea id="rate-comment" placeholder="Add feedback for the manager..."></textarea>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-ghost" style="flex:1" id="rate-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" style="flex:1" id="rate-submit-btn">Save Rating</button>
+    </div>
+  </div>
+</div>
+
 <!-- STAFF CALENDAR MODAL -->
 <div class="modal-overlay" id="staff-cal-modal">
   <div class="modal" style="padding-bottom:36px">
