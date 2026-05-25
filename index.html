@@ -867,8 +867,9 @@ async function viewComp(id){
 function openAddTask(task){
   // task = null for new, task object for edit
   const isEdit=!!task;
+  const isRecurring=isEdit&&(task.task_type==='recurring');
   document.getElementById('add-task-modal-title').textContent=isEdit?'Edit Task':'Add Task';
-  document.getElementById('add-task-submit-btn').textContent=isEdit?'Save Changes':'Add Task';
+  document.getElementById('add-task-submit-btn').textContent=isEdit?(isRecurring?'Save (applies to all occurrences)':'Save Changes'):'Add Task';
   document.getElementById('edit-task-id').value=isEdit?task.id:'';
   document.getElementById('new-task-title').value=isEdit?task.title:'';
   document.getElementById('new-task-desc').value=isEdit?(task.description||''):'';
@@ -881,8 +882,10 @@ function openAddTask(task){
   // Restore day chip selections for edit mode
   document.querySelectorAll('.day-chip').forEach(c=>c.classList.remove('active'));
   if(isEdit&&task.recur_days){
-    const days=Array.isArray(task.recur_days)?task.recur_days:JSON.parse(task.recur_days||'[]');
-    days.forEach(d=>{const chip=document.querySelector('.day-chip[data-day="'+d+'"]');if(chip)chip.classList.add('active');});
+    try{
+      const days=Array.isArray(task.recur_days)?task.recur_days:JSON.parse(task.recur_days||'[]');
+      days.forEach(d=>{const chip=document.querySelector('.day-chip[data-day="'+d+'"]');if(chip)chip.classList.add('active');});
+    }catch(e){}
   }
   const sel=document.getElementById('new-task-assignee');
   const isAdmin=currentProfile.role==='admin';
@@ -935,8 +938,18 @@ async function submitNewTask(){
   }
   setBtnLoading('add-task-submit-btn',false);
   if(error){
-    const msg=error.message&&error.message.includes('policy')?'Permission denied. Contact admin to enable task creation for managers.':error.message;
-    toast(msg,'error');return;
+    // If recur columns don't exist yet, retry without them
+    if(error.message&&(error.message.includes('recur_subtype')||error.message.includes('recur_days'))){
+      const safePayload={title:payload.title,description:payload.description,assigned_to:payload.assigned_to,
+        task_type:payload.task_type,scheduled_date:payload.scheduled_date,priority:payload.priority,category_id:payload.category_id};
+      let err2;
+      if(isEdit){({error:err2}=await db.from('tasks').update(safePayload).eq('id',editId));}
+      else{({error:err2}=await db.from('tasks').insert({...safePayload,status:'pending',created_by:currentUser.id,carried_forward:false}));}
+      if(err2){toast(err2.message,'error');return;}
+    } else {
+      const msg=error.message&&error.message.includes('policy')?'Permission denied. Contact admin to enable task creation for managers.':error.message;
+      toast(msg,'error');return;
+    }
   }
   toast(isEdit?'Task updated!':'Task added!','success');
   closeModal('add-task-modal');loadTasksList();renderDashboard();
@@ -1103,22 +1116,49 @@ async function loadSummary(year,month){
     const overallPct=totalTasks>0?Math.round(totalDone/totalTasks*100):0;
     const col=overallPct>=80?'accent':overallPct>=60?'gold':'red';
 
-    // Fetch ratings for this manager's completions
+    // Fetch ratings for this manager's completions with task titles
   const {data:ratings}=await db.from('task_completions')
-    .select('rating,admin_comment,completed_date,task_id')
+    .select('id,rating,admin_comment,completed_date,task_id,tasks(title,category_id)')
     .eq('completed_by',myId)
     .not('rating','is',null)
     .gte('completed_date',sd).lte('completed_date',es);
   const avgRating=ratings&&ratings.length?
     (ratings.reduce((s,r)=>s+r.rating,0)/ratings.length).toFixed(1):null;
 
+  // Build overall rating buckets [1..5]
+  const overallBuckets={1:[],2:[],3:[],4:[],5:[]};
+  (ratings||[]).forEach(r=>{if(r.rating&&overallBuckets[r.rating])overallBuckets[r.rating].push(r);});
+  const totalRated=(ratings||[]).length;
+
   h+='<div class="card" style="margin-bottom:14px">'
       +'<div class="card-header"><span class="card-title">'+monthLabel+'</span>'
       +'<span style="font-family:var(--mono);font-size:20px;font-weight:800;color:'+(overallPct>=80?'var(--accent)':overallPct>=60?'var(--gold)':'var(--red)')+'">'+overallPct+'%</span>'
       +'</div>'
       +'<div style="font-size:13px;color:var(--text2);margin-bottom:6px">'+totalDone+' of '+totalTasks+' tasks completed</div>'
-      +(avgRating?'<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:8px 10px;background:var(--gold-light);border-radius:8px"><span style="font-size:18px;color:var(--gold)">'+'★'.repeat(Math.round(parseFloat(avgRating)))+'☆'.repeat(5-Math.round(parseFloat(avgRating)))+'</span><span style="font-size:13px;font-weight:700;color:var(--text)">'+avgRating+' avg · '+ratings.length+' rated</span></div>':'')
       +'<div class="progress-bar"><div class="progress-fill '+col+'" style="width:'+overallPct+'%"></div></div>'
+      // Overall rating summary
+      +(avgRating
+        ?'<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
+          +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+          +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3)">Admin Ratings</div>'
+          +'<div style="display:flex;align-items:center;gap:6px">'
+          +'<span style="color:var(--gold);font-size:16px">'+'★'.repeat(Math.round(parseFloat(avgRating)))+'☆'.repeat(5-Math.round(parseFloat(avgRating)))+'</span>'
+          +'<span style="font-size:15px;font-weight:800;font-family:var(--mono);color:var(--gold)">'+avgRating+'</span>'
+          +'<span style="font-size:11px;color:var(--text3)">avg · '+totalRated+' rated</span>'
+          +'</div></div>'
+          // Rating breakdown bars - clickable
+          +[5,4,3,2,1].map(star=>{
+            const bucket=overallBuckets[star]||[];
+            const barPct=totalRated>0?Math.round(bucket.length/totalRated*100):0;
+            return '<div class="overall-rating-row" data-star="'+star+'" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;padding:5px 8px;border-radius:8px;transition:background 0.15s">'
+              +'<span style="font-size:12px;font-weight:700;color:var(--gold);width:22px;flex-shrink:0">'+star+'★</span>'
+              +'<div style="flex:1;height:8px;background:var(--surface3);border-radius:4px;overflow:hidden">'
+              +'<div style="width:'+barPct+'%;height:100%;background:var(--gold);border-radius:4px;transition:width 0.4s"></div></div>'
+              +'<span style="font-size:12px;font-weight:700;color:var(--text2);width:24px;text-align:right">'+bucket.length+'</span>'
+              +'</div>';
+          }).join('')
+          +'</div>'
+        :'')
       +'</div>';
 
     // ── By category breakdown ──
@@ -1249,7 +1289,34 @@ async function loadSummary(year,month){
   el.querySelectorAll('.staff-cal-row').forEach(row=>{
     row.addEventListener('click',()=>{openStaffCalendar(row.dataset.staffId,row.dataset.staffName,year,month,attDatedCache);});
   });
-  // Wire rating bar row clicks - show tasks for that star level
+  // Wire overall rating row clicks (manager summary top card)
+  el.querySelectorAll('.overall-rating-row').forEach(row=>{
+    row.addEventListener('mouseover',()=>row.style.background='var(--surface2)');
+    row.addEventListener('mouseout',()=>row.style.background='');
+    row.addEventListener('click',()=>{
+      const star=parseInt(row.dataset.star);
+      const bucket=overallBuckets?overallBuckets[star]:[];
+      if(!bucket||!bucket.length)return;
+      const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
+      const stars='★'.repeat(star)+'☆'.repeat(5-star);
+      let modalH='<div style="font-size:13px;color:var(--text2);margin-bottom:14px;font-weight:600">'
+        +'<span style="color:var(--gold);font-size:16px">'+stars+'</span> '+RL[star]+' — '+bucket.length+' task'+(bucket.length>1?'s':'')+'</div>';
+      bucket.forEach(r=>{
+        const cat=r.tasks?.category_id?taskCategories.find(c=>c.id===r.tasks.category_id):null;
+        modalH+='<div style="padding:10px 12px;background:var(--surface2);border-radius:9px;margin-bottom:8px">'
+          +'<div style="font-size:13px;font-weight:700;margin-bottom:3px">'+esc(r.tasks?.title||'—')+'</div>'
+          +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+';margin-bottom:4px">'+esc(cat.name)+'</span><br>':'')
+          +(r.admin_comment?'<div style="font-size:12px;color:var(--text2);font-style:italic;line-height:1.4;margin-top:4px">"'+esc(r.admin_comment)+'"</div>':'')
+          +'<div style="font-size:11px;color:var(--text3);margin-top:5px">'+r.completed_date+'</div>'
+          +'</div>';
+      });
+      document.getElementById('view-comp-body').innerHTML=modalH;
+      const rateBtn=document.getElementById('view-comp-rate-btn');
+      if(rateBtn)rateBtn.style.display='none';
+      openModal('view-comp-modal');
+    });
+  });
+  // Wire category rating bar row clicks - show tasks for that star level
   el.querySelectorAll('.rating-row').forEach(row=>{
     row.addEventListener('click',()=>{
       const catId=row.dataset.cat;
@@ -1356,27 +1423,72 @@ function switchAdminTab(name){
 }
 
 async function renderAdminReviews(){
-  const {data:comps}=await db.from('task_completions')
-    .select('id,rating,admin_comment,rated_at,completed_date,completed_by,task_id,profiles:completed_by(name),tasks(title,category_id)')
-    .not('rating','is',null).order('rated_at',{ascending:false}).limit(50);
   const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
-  if(!comps||!comps.length)return '<div class="empty" style="padding:32px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:14px;color:var(--text3);padding:8px 0">No reviews yet.</div></div>';
-  let h='<div class="section-header"><span class="section-title">All Reviews ('+comps.length+')</span></div>';
-  comps.forEach(c=>{
-    const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
-    const stars='★'.repeat(c.rating)+'☆'.repeat(5-c.rating);
-    h+='<div class="card" style="margin-bottom:9px">'
-      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
-      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;margin-bottom:2px">'+esc(c.tasks?.title||'—')+'</div>'
-      +'<div style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||'?')+' · '+c.completed_date+'</div>'
-      +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
-      +'</div>'
-      +'<div style="text-align:right;flex-shrink:0"><div style="color:var(--gold);font-size:16px;letter-spacing:1px">'+stars+'</div>'
-      +'<div style="font-size:11px;font-weight:600;color:var(--text2)">'+RL[c.rating]+'</div></div></div>'
-      +(c.admin_comment?'<div style="margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.5;border-top:1px solid var(--border);padding-top:7px">"'+esc(c.admin_comment)+'"</div>':'')
-      +'<div style="margin-top:8px"><button class="btn btn-ghost btn-xs" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="'+c.rating+'" data-comment="'+esc(c.admin_comment||'')+'">Edit Rating</button></div>'
-      +'</div>';
-  });
+
+  // Fetch completed tasks WITHOUT a rating (pending review)
+  const {data:unrated}=await db.from('task_completions')
+    .select('id,completed_date,completed_by,task_id,profiles:completed_by(name),tasks(title,category_id)')
+    .is('rating',null)
+    .order('completed_date',{ascending:false})
+    .limit(100);
+
+  // Fetch completed tasks WITH a rating
+  const {data:rated}=await db.from('task_completions')
+    .select('id,rating,admin_comment,rated_at,completed_date,completed_by,task_id,profiles:completed_by(name),tasks(title,category_id)')
+    .not('rating','is',null)
+    .order('rated_at',{ascending:false})
+    .limit(50);
+
+  let h='';
+
+  // ── Pending Reviews ──
+  h+='<div class="section-header"><span class="section-title">Pending Review ('+((unrated||[]).length)+')</span></div>';
+  if(!unrated||!unrated.length){
+    h+='<div style="padding:12px;background:var(--accent-light);border-radius:var(--radius-sm);text-align:center;font-size:13px;color:var(--accent2);font-weight:600;margin-bottom:16px">✓ All completions reviewed!</div>';
+  } else {
+    (unrated||[]).forEach(c=>{
+      const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+      h+='<div class="card" style="margin-bottom:9px;border-left:3px solid var(--gold)">'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:13px;font-weight:700;margin-bottom:3px">'+esc(c.tasks?.title||'—')+'</div>'
+        +'<div style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||'?')+' · '+c.completed_date+'</div>'
+        +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+        +'</div>'
+        +'<span class="badge badge-carried">Unrated</span>'
+        +'</div>'
+        +'<div style="margin-top:10px">'
+        +'<button class="btn btn-gold btn-sm" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="0" data-comment="">★ Rate now</button>'
+        +'</div>'
+        +'</div>';
+    });
+  }
+
+  // ── All Reviews ──
+  h+='<div class="section-header" style="margin-top:16px"><span class="section-title">All Reviews ('+((rated||[]).length)+')</span></div>';
+  if(!rated||!rated.length){
+    h+='<div class="empty" style="padding:24px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:6px 0">No ratings given yet.</div></div>';
+  } else {
+    rated.forEach(c=>{
+      const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+      const stars='★'.repeat(c.rating)+'☆'.repeat(5-c.rating);
+      h+='<div class="card" style="margin-bottom:9px">'
+        +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+        +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;margin-bottom:2px">'+esc(c.tasks?.title||'—')+'</div>'
+        +'<div style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||'?')+' · '+c.completed_date+'</div>'
+        +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+        +'</div>'
+        +'<div style="text-align:right;flex-shrink:0">'
+        +'<div style="color:var(--gold);font-size:16px;letter-spacing:1px">'+stars+'</div>'
+        +'<div style="font-size:11px;font-weight:600;color:var(--text2)">'+RL[c.rating]+'</div>'
+        +'</div></div>'
+        +(c.admin_comment?'<div style="margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.5;border-top:1px solid var(--border);padding-top:7px">"'+esc(c.admin_comment)+'"</div>':'')
+        +'<div style="margin-top:8px">'
+        +'<button class="btn btn-ghost btn-xs" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="'+c.rating+'" data-comment="'+esc(c.admin_comment||'')+'">Edit Rating</button>'
+        +'</div>'
+        +'</div>';
+    });
+  }
   return h;
 }
 
