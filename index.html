@@ -225,13 +225,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
   <div class="page" id="page-attendance"></div>
   <div class="page" id="page-summary"></div>
   <div class="page" id="page-notifications"></div>
+  <div class="page" id="page-reviews-mgr"></div>
   <div class="page" id="page-admin"></div>
   <div class="tabs" id="tab-bar">
     <div class="tab active" data-tab="dashboard"><span class="tab-icon" style="font-size:17px">⊡</span>Today</div>
     <div class="tab" data-tab="tasks"><span class="tab-icon" style="font-size:17px">⊟</span>Tasks</div>
     <div class="tab" data-tab="attendance"><span class="tab-icon" style="font-size:17px">⊕</span>Attend.</div>
     <div class="tab" data-tab="summary"><span class="tab-icon" style="font-size:17px">⊞</span>Summary</div>
-    <div class="tab" data-tab="notifications"><span class="tab-icon" style="font-size:17px">◎</span>Alerts</div>
+    <div class="tab" data-tab="reviews-mgr"><span class="tab-icon" style="font-size:17px">◈</span>Reviews</div>
     <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon" style="font-size:17px">⊛</span>Admin</div>
   </div>
 </div>
@@ -509,6 +510,7 @@ function switchTab(name){
   else if(name==='attendance')renderAttendance();
   else if(name==='summary')renderSummary();
   else if(name==='notifications')renderNotifications();
+  else if(name==='reviews-mgr'){if(currentProfile.role==='manager')renderMgrReviews();else renderNotifications();}
   else if(name==='admin')renderAdmin();
 }
 
@@ -1607,6 +1609,250 @@ async function renderAdmin(){
 }
 
 // ========================
+// NOTIFICATION OVERLAY
+// ========================
+async function openNotifOverlay(){
+  openModal('notif-overlay');
+  const el=document.getElementById('notif-overlay-list');
+  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  const {data}=await db.from('task_notifications').select('*').eq('user_id',currentUser.id).order('created_at',{ascending:false}).limit(30);
+  if(!data||!data.length){
+    el.innerHTML='<div class="empty" style="padding:24px"><div style="font-size:24px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:6px 0">No notifications.</div></div>';
+    return;
+  }
+  el.innerHTML=data.map(n=>'<div class="notif-item '+(n.read?'':'unread')+'" style="margin-bottom:8px"><div class="notif-dot '+(n.read?'read':'')+'"></div><div><div class="notif-text">'+esc(n.message)+'</div><div class="notif-time">'+timeAgo(n.created_at)+'</div></div></div>').join('');
+  await db.from('task_notifications').update({read:true}).eq('user_id',currentUser.id);
+  loadNotifBadge();
+}
+
+// ========================
+// MANAGER REVIEWS PAGE
+// ========================
+let mgrReviewMonth={year:new Date().getFullYear(),month:new Date().getMonth()};
+let mgrReviewFilter='all'; // all | needs_work | average | good
+
+async function renderMgrReviews(){
+  const el=document.getElementById('page-reviews-mgr');
+  const now=new Date();
+  // Month chips
+  const months=[];
+  for(let i=0;i<4;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    months.push({label:d.toLocaleDateString('en-IN',{month:'short',year:'numeric'}),year:d.getFullYear(),month:d.getMonth()});
+  }
+  let h='<div class="month-chip-row">'+months.map((m,i)=>'<div class="mgr-month-chip month-chip'+(mgrReviewMonth.year===m.year&&mgrReviewMonth.month===m.month?' active':'')+'" data-year="'+m.year+'" data-month="'+m.month+'">'+m.label+'</div>').join('')+'</div>';
+  h+='<div id="mgr-review-body"><div class="loading-overlay"><div class="spinner-dark"></div></div></div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.mgr-month-chip').forEach(chip=>{
+    chip.addEventListener('click',()=>{
+      mgrReviewMonth={year:parseInt(chip.dataset.year),month:parseInt(chip.dataset.month)};
+      el.querySelectorAll('.mgr-month-chip').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      loadMgrReviewBody();
+    });
+  });
+  loadMgrReviewBody();
+}
+
+async function loadMgrReviewBody(){
+  const el=document.getElementById('mgr-review-body');
+  if(!el)return;
+  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  const {year,month}=mgrReviewMonth;
+  const sd=year+'-'+String(month+1).padStart(2,'0')+'-01';
+  const ed=new Date(year,month+1,0);
+  const es=fmt(ed);
+  const myId=currentUser.id;
+
+  // Fetch all completions this month with ratings
+  const {data:comps}=await db.from('task_completions')
+    .select('id,rating,admin_comment,completed_date,task_id,tasks(title,category_id,description)')
+    .eq('completed_by',myId)
+    .not('rating','is',null)
+    .gte('completed_date',sd).lte('completed_date',es)
+    .order('completed_date',{ascending:false});
+
+  // Fetch unrated completions too
+  const {data:unrated}=await db.from('task_completions')
+    .select('id,completed_date,task_id,tasks(title,category_id)')
+    .eq('completed_by',myId)
+    .is('rating',null)
+    .gte('completed_date',sd).lte('completed_date',es);
+
+  const allRated=comps||[];
+  const totalRated=allRated.length;
+  const avgRating=totalRated>0?(allRated.reduce((s,r)=>s+(r.rating||0),0)/totalRated).toFixed(1):null;
+
+  // Rating buckets
+  const buckets={1:[],2:[],3:[],4:[],5:[]};
+  allRated.forEach(c=>{if(c.rating)buckets[c.rating].push(c);});
+
+  // Category performance map
+  const catPerf={};
+  allRated.forEach(c=>{
+    const cid=c.tasks?.category_id||'__none__';
+    if(!catPerf[cid])catPerf[cid]={name:cid==='__none__'?'Uncategorised':(taskCategories.find(x=>x.id===cid)?.name||'Unknown'),cat:taskCategories.find(x=>x.id===cid)||null,ratings:[],total:0};
+    catPerf[cid].ratings.push(c.rating);
+    catPerf[cid].total++;
+  });
+
+  let h='';
+
+  // ── SCORECARD ──
+  if(totalRated===0&&(!unrated||!unrated.length)){
+    h+='<div class="empty" style="padding:40px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:14px;color:var(--text3);padding:8px 0">No completed tasks this month.</div></div>';
+    el.innerHTML=h;return;
+  }
+
+  if(totalRated>0){
+    const avgNum=parseFloat(avgRating);
+    const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
+    h+='<div class="card" style="margin-bottom:14px">'
+      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+      +'<div><div style="font-size:22px;font-weight:800;font-family:var(--mono);color:var(--gold)">'+avgRating+'</div>'
+      +'<div style="font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px">avg rating · '+totalRated+' reviewed</div></div>'
+      +'<div style="font-size:28px;color:var(--gold);letter-spacing:2px">'+'★'.repeat(Math.round(avgNum))+'☆'.repeat(5-Math.round(avgNum))+'</div>'
+      +'</div>'
+      // Breakdown bars
+      +[5,4,3,2,1].map(star=>{
+        const cnt=buckets[star].length;
+        const pct=totalRated>0?Math.round(cnt/totalRated*100):0;
+        const barCol=star>=4?'var(--accent)':star===3?'var(--gold)':'var(--red)';
+        return '<div class="mgr-star-row" data-star="'+star+'" style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;padding:5px 8px;border-radius:8px">'
+          +'<span style="font-size:11px;font-weight:700;color:'+barCol+';width:22px;flex-shrink:0">'+star+'★</span>'
+          +'<div style="flex:1;height:8px;background:var(--surface3);border-radius:4px;overflow:hidden">'
+          +'<div style="width:'+pct+'%;height:100%;background:'+barCol+';border-radius:4px;transition:width 0.4s"></div></div>'
+          +'<span style="font-size:11px;font-weight:700;color:var(--text2);width:20px;text-align:right">'+cnt+'</span>'
+          +'</div>';
+      }).join('')
+      +(unrated&&unrated.length?'<div style="margin-top:10px;font-size:12px;color:var(--text3);border-top:1px solid var(--border);padding-top:8px">'+unrated.length+' completion'+(unrated.length>1?'s':'')+'awaiting admin review</div>':'')
+      +'</div>';
+
+    // ── RECOMMENDATIONS ──
+    h+='<div class="section-header"><span class="section-title">Recommendations</span></div>';
+    const recs=[];
+    // Low average categories
+    Object.values(catPerf).forEach(cp=>{
+      const avg=cp.ratings.reduce((s,r)=>s+r,0)/cp.ratings.length;
+      if(avg<3&&cp.total>=2)recs.push({type:'low_cat',msg:'"'+cp.name+'" tasks are averaging '+avg.toFixed(1)+'★ — review what is going wrong here.',urgency:'high'});
+      else if(avg<4&&cp.total>=3)recs.push({type:'mid_cat',msg:'"'+cp.name+'" could be stronger ('+avg.toFixed(1)+'★ avg). Look at admin comments for patterns.',urgency:'medium'});
+    });
+    // Repeated low-rated tasks
+    const taskRatings={};
+    allRated.forEach(c=>{
+      const tid=c.task_id;
+      if(!taskRatings[tid])taskRatings[tid]={title:c.tasks?.title||'?',ratings:[]};
+      taskRatings[tid].ratings.push(c.rating);
+    });
+    Object.values(taskRatings).forEach(tr=>{
+      if(tr.ratings.length>=2){
+        const avg=tr.ratings.reduce((s,r)=>s+r,0)/tr.ratings.length;
+        if(avg<=2)recs.push({type:'repeat_low',msg:'"'+tr.title+'" has been rated low '+tr.ratings.length+' times. Focus on this one.',urgency:'high'});
+      }
+    });
+    // Positive reinforcement
+    Object.values(catPerf).forEach(cp=>{
+      const avg=cp.ratings.reduce((s,r)=>s+r,0)/cp.ratings.length;
+      if(avg>=4.5&&cp.total>=2)recs.push({type:'strength',msg:'Great work on "'+cp.name+'" tasks ('+avg.toFixed(1)+'★ avg). Keep it up!',urgency:'positive'});
+    });
+    if(recs.length===0){
+      if(avgNum>=4)recs.push({type:'general',msg:'Strong performance this month! Average of '+avgRating+'★ is excellent.',urgency:'positive'});
+      else recs.push({type:'general',msg:'Check individual task ratings below and focus on admin feedback.',urgency:'medium'});
+    }
+
+    const recColors={high:'var(--red-light)',medium:'var(--gold-light)',positive:'var(--accent-light)'};
+    const recBorders={high:'rgba(224,85,85,0.2)',medium:'rgba(232,160,32,0.2)',positive:'rgba(59,186,156,0.2)'};
+    const recIcons={high:'⚠',medium:'→',positive:'✓'};
+    recs.forEach(r=>{
+      h+='<div style="padding:12px 14px;background:'+recColors[r.urgency]+';border:1px solid '+recBorders[r.urgency]+';border-radius:var(--radius-sm);margin-bottom:8px;display:flex;gap:10px;align-items:flex-start">'
+        +'<span style="font-size:14px;flex-shrink:0;margin-top:1px">'+recIcons[r.urgency]+'</span>'
+        +'<div style="font-size:13px;line-height:1.5;font-weight:500;color:var(--text)">'+esc(r.msg)+'</div>'
+        +'</div>';
+    });
+
+    // ── FILTER + TASK LIST ──
+    h+='<div class="section-header" style="margin-top:16px"><span class="section-title">Task Details</span></div>';
+    h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px" id="mgr-review-filters">'
+      +['all','needs_work','average','good'].map(f=>{
+        const labels={all:'All',needs_work:'Needs Work (1-2★)',average:'Average (3★)',good:'Good (4-5★)'};
+        return '<button class="month-chip '+(mgrReviewFilter===f?'active':'')+'" data-filter="'+f+'">'+labels[f]+'</button>';
+      }).join('')
+      +'</div>'
+      +'<div id="mgr-task-list"></div>';
+  }
+
+  el.innerHTML=h;
+
+  // Wire star row clicks
+  el.querySelectorAll('.mgr-star-row').forEach(row=>{
+    row.addEventListener('mouseover',()=>row.style.background='var(--surface2)');
+    row.addEventListener('mouseout',()=>row.style.background='');
+    row.addEventListener('click',()=>{
+      const star=parseInt(row.dataset.star);
+      const tasks=buckets[star]||[];
+      if(!tasks.length)return;
+      const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
+      let modalH='<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:12px">'
+        +'<span style="color:var(--gold)">'+'★'.repeat(star)+'☆'.repeat(5-star)+'</span> '+RL[star]+' — '+tasks.length+' task'+(tasks.length>1?'s':'')+'</div>';
+      tasks.forEach(c=>{
+        const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+        modalH+='<div style="padding:10px 12px;background:var(--surface2);border-radius:9px;margin-bottom:8px">'
+          +'<div style="font-size:13px;font-weight:700;margin-bottom:3px">'+esc(c.tasks?.title||'—')+'</div>'
+          +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span><br>':'')
+          +(c.admin_comment?'<div style="font-size:12px;color:var(--text2);font-style:italic;line-height:1.4;margin-top:5px">"'+esc(c.admin_comment)+'"</div>':'')
+          +'<div style="font-size:11px;color:var(--text3);margin-top:5px">'+c.completed_date+'</div></div>';
+      });
+      document.getElementById('view-comp-body').innerHTML=modalH;
+      const rateBtn=document.getElementById('view-comp-rate-btn');
+      if(rateBtn)rateBtn.style.display='none';
+      openModal('view-comp-modal');
+    });
+  });
+
+  // Wire filter chips
+  el.querySelectorAll('[data-filter]').forEach(chip=>{
+    chip.addEventListener('click',()=>{
+      mgrReviewFilter=chip.dataset.filter;
+      el.querySelectorAll('[data-filter]').forEach(c=>c.classList.toggle('active',c.dataset.filter===mgrReviewFilter));
+      renderMgrTaskList(allRated,buckets);
+    });
+  });
+
+  if(totalRated>0)renderMgrTaskList(allRated,buckets);
+}
+
+function renderMgrTaskList(allRated,buckets){
+  const el=document.getElementById('mgr-task-list');
+  if(!el)return;
+  const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
+  let tasks=[];
+  if(mgrReviewFilter==='all')tasks=allRated;
+  else if(mgrReviewFilter==='needs_work')tasks=[...(buckets[1]||[]),...(buckets[2]||[])];
+  else if(mgrReviewFilter==='average')tasks=buckets[3]||[];
+  else if(mgrReviewFilter==='good')tasks=[...(buckets[4]||[]),...(buckets[5]||[])];
+
+  if(!tasks.length){el.innerHTML='<div class="empty" style="padding:20px"><div style="text-align:center;font-size:13px;color:var(--text3)">No tasks in this category.</div></div>';return;}
+
+  el.innerHTML=tasks.map(c=>{
+    const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+    const starCol=c.rating>=4?'var(--accent)':c.rating===3?'var(--gold)':'var(--red)';
+    return '<div class="card" style="margin-bottom:9px;border-left:3px solid '+starCol+'">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:13px;font-weight:700;margin-bottom:3px">'+esc(c.tasks?.title||'—')+'</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+c.completed_date+'</div>'
+      +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+      +'<div style="color:'+starCol+';font-size:16px;letter-spacing:1px">'+'★'.repeat(c.rating)+'☆'.repeat(5-c.rating)+'</div>'
+      +'<div style="font-size:10px;font-weight:700;color:'+starCol+'">'+RL[c.rating]+'</div>'
+      +'</div></div>'
+      +(c.admin_comment?'<div style="margin-top:8px;padding:8px 10px;background:var(--surface2);border-radius:7px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.5">"'+esc(c.admin_comment)+'"</div>':'')
+      +'</div>';
+  }).join('');
+}
+
+// ========================
 // TASK RATING (admin)
 // ========================
 const RATING_LABELS=['','Needs improvement','Below average','Average','Good','Excellent'];
@@ -1801,7 +2047,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   // App nav
   document.getElementById('avatar-btn').addEventListener('click',toggleProfileMenu);
   document.getElementById('logout-btn').addEventListener('click',doLogout);
-  document.getElementById('notif-btn').addEventListener('click',()=>switchTab('notifications'));
+  document.getElementById('notif-btn').addEventListener('click',openNotifOverlay);
   document.addEventListener('click',e=>{if(!e.target.closest('#profile-menu')&&!e.target.closest('#avatar-btn'))document.getElementById('profile-menu').classList.remove('open');});
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchTab(t.dataset.tab)));
 
@@ -1866,6 +2112,12 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   // View comp close
   document.getElementById('view-comp-close-btn').addEventListener('click',()=>closeModal('view-comp-modal'));
+  document.getElementById('notif-mark-read-btn').addEventListener('click',async()=>{
+    await db.from('task_notifications').update({read:true}).eq('user_id',currentUser.id);
+    loadNotifBadge();
+    closeModal('notif-overlay');
+    toast('All marked as read','info');
+  });
   document.getElementById('rate-cancel-btn').addEventListener('click',()=>closeModal('rate-modal'));
   document.getElementById('rate-submit-btn').addEventListener('click',submitRating);
   // Star picker hover + click
@@ -1911,6 +2163,18 @@ document.addEventListener('DOMContentLoaded',()=>{
   })();
 });
 </script>
+<!-- NOTIFICATION OVERLAY -->
+<div class="modal-overlay" id="notif-overlay">
+  <div class="modal" style="border-radius:22px 22px 0 0;max-height:75vh">
+    <div class="modal-handle"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:17px;font-weight:800">Notifications</div>
+      <button class="btn btn-ghost btn-xs" id="notif-mark-read-btn">Mark all read</button>
+    </div>
+    <div id="notif-overlay-list" style="overflow-y:auto;max-height:calc(75vh - 100px)"></div>
+  </div>
+</div>
+
 <!-- RATE COMPLETION MODAL (admin only) -->
 <div class="modal-overlay" id="rate-modal">
   <div class="modal">
