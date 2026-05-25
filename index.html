@@ -1124,35 +1124,76 @@ async function loadSummary(year,month){
     // ── By category breakdown ──
     h+='<div class="section-header"><span class="section-title">By Category</span></div>';
 
-    // Group tasks by category
+    // Group tasks by category - include ratings
+    const compByTaskId={};
+    myComps.forEach(c=>{compByTaskId[c.task_id]=c;});
+    // Fetch full completions with ratings for this period
+    const {data:myRatedComps}=await db.from('task_completions')
+      .select('task_id,rating,admin_comment,completed_date')
+      .eq('completed_by',myId)
+      .gte('completed_date',sd).lte('completed_date',es);
+    const ratingByTask={};
+    (myRatedComps||[]).forEach(c=>{if(c.rating)ratingByTask[c.task_id]={rating:c.rating,comment:c.admin_comment,date:c.completed_date};});
+
     const catMap={};
     myTasks.forEach(t=>{
       const key=t.category_id||'__none__';
-      if(!catMap[key])catMap[key]={cat:cats.find(c=>c.id===t.category_id)||null,done:0,total:0,missed:[]};
+      if(!catMap[key])catMap[key]={cat:cats.find(c=>c.id===t.category_id)||null,done:0,total:0,missed:[],ratingBuckets:{1:[],2:[],3:[],4:[],5:[]},totalRating:0,ratingCount:0};
       catMap[key].total++;
-      if(doneTaskIds.has(t.id))catMap[key].done++;
-      else catMap[key].missed.push(t.title);
+      if(doneTaskIds.has(t.id)){
+        catMap[key].done++;
+        const r=ratingByTask[t.id];
+        if(r){
+          catMap[key].ratingBuckets[r.rating].push({title:t.title,taskId:t.id,comment:r.comment,date:r.date});
+          catMap[key].totalRating+=r.rating;
+          catMap[key].ratingCount++;
+        }
+      } else catMap[key].missed.push(t.title);
     });
 
     const catEntries=Object.values(catMap).sort((a,b)=>b.total-a.total);
     if(!catEntries.length){
       h+='<div class="empty" style="padding:24px"><div class="empty-icon" style="font-family:var(--mono);font-size:28px;color:var(--border2)">○</div><div class="empty-text">No tasks this month.</div></div>';
     } else {
-      catEntries.forEach(({cat,done,total,missed})=>{
+      catEntries.forEach(({cat,done,total,missed,ratingBuckets,totalRating,ratingCount})=>{
         const pct=total>0?Math.round(done/total*100):0;
         const pcol=pct===100?'accent':pct>=60?'gold':'red';
         const catName=cat?cat.name:'Uncategorised';
-        const catStyle=cat?'background:'+cat.color+';color:'+cat.text_color:' background:var(--surface3);color:var(--text2)';
+        const catStyle=cat?'background:'+cat.color+';color:'+cat.text_color:'background:var(--surface3);color:var(--text2)';
+        const catAvg=ratingCount>0?(totalRating/ratingCount).toFixed(1):null;
+        const catId=cat?cat.id:'__none__';
+
         h+='<div class="card" style="margin-bottom:10px">'
+          // Header row
           +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
           +'<span class="badge" style="'+catStyle+'">'+esc(catName)+'</span>'
+          +'<div style="display:flex;align-items:center;gap:8px">'
+          +(catAvg?'<span style="font-size:12px;color:var(--gold);font-weight:700">★ '+catAvg+'</span>':'')
           +'<span style="font-family:var(--mono);font-weight:800;font-size:15px;color:'+(pct===100?'var(--accent)':pct>=60?'var(--gold)':'var(--red)')+'">'+done+'/'+total+'</span>'
-          +'</div>'
+          +'</div></div>'
+          // Progress bar
           +'<div class="progress-bar"><div class="progress-fill '+pcol+'" style="width:'+pct+'%"></div></div>'
-          +(missed.length?'<div style="margin-top:8px;padding:8px 10px;background:var(--red-light);border-radius:8px;border:1px solid rgba(224,85,85,0.15)">'
-            +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">Missed</div>'
-            +'<div style="font-size:12px;color:var(--text2);line-height:1.6">'+missed.map(m=>esc(m)).join(', ')+'</div>'
-            +'</div>':'')
+          // Rating breakdown (if any ratings exist)
+          +(ratingCount>0
+            ?'<div style="margin-top:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">Rating Breakdown ('+ratingCount+' rated)</div>'
+              +[5,4,3,2,1].map(star=>{
+                const tasks=ratingBuckets[star]||[];
+                if(!tasks.length)return '';
+                const barPct=Math.round(tasks.length/ratingCount*100);
+                return '<div class="rating-row" data-cat="'+catId+'" data-star="'+star+'" style="display:flex;align-items:center;gap:8px;margin-bottom:5px;cursor:pointer;padding:4px 6px;border-radius:6px;transition:background 0.15s">'
+                  +'<span style="font-size:11px;color:var(--gold);width:20px;font-weight:700">'+star+'★</span>'
+                  +'<div style="flex:1;height:7px;background:var(--surface3);border-radius:4px;overflow:hidden"><div style="width:'+barPct+'%;height:100%;background:var(--gold);border-radius:4px;transition:width 0.4s"></div></div>'
+                  +'<span style="font-size:11px;font-weight:700;color:var(--text2);width:18px;text-align:right">'+tasks.length+'</span>'
+                  +'</div>';
+              }).join('')
+              +'</div>'
+            :'')
+          // Missed tasks
+          +(missed.length
+            ?'<div style="margin-top:8px;padding:8px 10px;background:var(--red-light);border-radius:8px;border:1px solid rgba(224,85,85,0.15)">'
+              +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--red);margin-bottom:4px">Missed</div>'
+              +'<div style="font-size:12px;color:var(--text2);line-height:1.6">'+missed.map(m=>esc(m)).join(', ')+'</div>'
+              +'</div>':'')
           +'</div>';
       });
     }
@@ -1207,6 +1248,33 @@ async function loadSummary(year,month){
   el.innerHTML=h;
   el.querySelectorAll('.staff-cal-row').forEach(row=>{
     row.addEventListener('click',()=>{openStaffCalendar(row.dataset.staffId,row.dataset.staffName,year,month,attDatedCache);});
+  });
+  // Wire rating bar row clicks - show tasks for that star level
+  el.querySelectorAll('.rating-row').forEach(row=>{
+    row.addEventListener('click',()=>{
+      const catId=row.dataset.cat;
+      const star=parseInt(row.dataset.star);
+      // Find catMap entry
+      const entry=Object.values(catMap).find(e=>(e.cat?.id||'__none__')===catId);
+      if(!entry)return;
+      const tasks=entry.ratingBuckets[star]||[];
+      if(!tasks.length)return;
+      const catName=entry.cat?entry.cat.name:'Uncategorised';
+      const stars='★'.repeat(star)+'☆'.repeat(5-star);
+      let modalH='<div style="font-size:13px;color:var(--text2);margin-bottom:14px;font-weight:500">'
+        +'<span style="color:var(--gold)">'+stars+'</span> · '+esc(catName)+'</div>';
+      tasks.forEach(t=>{
+        modalH+='<div style="padding:10px;background:var(--surface2);border-radius:9px;margin-bottom:8px">'
+          +'<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+esc(t.title)+'</div>'
+          +(t.comment?'<div style="font-size:12px;color:var(--text2);font-style:italic;line-height:1.4">"'+esc(t.comment)+'"</div>':'')
+          +'<div style="font-size:11px;color:var(--text3);margin-top:4px">'+t.date+'</div>'
+          +'</div>';
+      });
+      document.getElementById('view-comp-body').innerHTML=modalH;
+      const rateBtn=document.getElementById('view-comp-rate-btn');
+      if(rateBtn)rateBtn.style.display='none';
+      openModal('view-comp-modal');
+    });
   });
 }
 
@@ -1280,22 +1348,45 @@ async function renderNotifications(){
 async function addNotif(userId,message,type){await db.from('task_notifications').insert({user_id:userId,message,type,read:false});}
 
 // ADMIN
+// Admin sub-tab state
+let adminTab='approvals';
+function switchAdminTab(name){
+  adminTab=name;
+  renderAdmin();
+}
+
 async function renderAdmin(){
   if(currentProfile.role!=='admin')return;
   const el=document.getElementById('page-admin');
-  // Fetch everything first, then render in one shot (avoids blank flash)
   const [{data:pending},{data:active}]=await Promise.all([
     db.from('profiles').select('*').eq('status','pending'),
     db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name')
   ]);
-  let h='';
+  // Sub-tab bar
+  const subTabs=[
+    {key:'approvals',label:'Approvals',badge:(pending||[]).length},
+    {key:'managers',label:'Managers'},
+    {key:'staff',label:'Staff'},
+    {key:'reviews',label:'Reviews'},
+    {key:'policy',label:'Policy'},
+  ];
+  let h='<div style="display:flex;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px">'
+    +subTabs.map(t=>'<button class="admin-sub-tab'+(adminTab===t.key?' active':'')+'" data-sub="'+t.key+'" style="flex:1;padding:9px 4px;font-size:11px;font-weight:700;cursor:pointer;border:none;background:'+(adminTab===t.key?'var(--accent)':'transparent')+';color:'+(adminTab===t.key?'#fff':'var(--text3)')+';transition:all 0.15s;white-space:nowrap">'
+      +t.label+(t.badge?'<span style="margin-left:4px;background:var(--red);color:#fff;border-radius:8px;padding:1px 5px;font-size:9px">'+t.badge+'</span>':'')
+      +'</button>').join('')
+    +'</div>';
+
+  // Render only active sub-tab content
+  if(adminTab==='approvals'){
   if(pending&&pending.length){
     h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;
     pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">Reject</button></div></div>`;});
   }
+  } else if(adminTab==='managers'){
   h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
   if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No active managers yet.</div></div>';
   else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
+  } else if(adminTab==='staff'){
   // Always fetch staff directly in admin view
   let {data:adminStaff,error:staffErr}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');
   if(staffErr&&staffErr.message&&staffErr.message.includes('weekoff_allowance')){
@@ -1339,14 +1430,58 @@ async function renderAdmin(){
     });
   });
   // Wire buttons
+// Render admin reviews sub-tab
+async function renderAdminReviews(){
+  const {data:comps}=await db.from('task_completions')
+    .select('id,rating,admin_comment,rated_at,completed_date,completed_by,task_id,profiles:completed_by(name),tasks(title,category_id)')
+    .not('rating','is',null)
+    .order('rated_at',{ascending:false})
+    .limit(50);
+  const ratingLabels=['','Needs improvement','Below average','Average','Good','Excellent'];
+  if(!comps||!comps.length)return '<div class="empty" style="padding:32px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:14px;color:var(--text3);padding:8px 0">No reviews yet.</div></div>';
+  let h='<div class="section-header"><span class="section-title">All Reviews ('+comps.length+')</span></div>';
+  comps.forEach(c=>{
+    const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+    const stars='★'.repeat(c.rating)+'☆'.repeat(5-c.rating);
+    h+='<div class="card" style="margin-bottom:9px">'
+      +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
+      +'<div style="flex:1;min-width:0">'
+      +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">'+esc(c.tasks?.title||'—')+'</div>'
+      +'<div style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||'?')+' · '+c.completed_date+'</div>'
+      +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+      +'</div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+      +'<div style="color:var(--gold);font-size:16px;letter-spacing:1px">'+stars+'</div>'
+      +'<div style="font-size:11px;font-weight:600;color:var(--text2)">'+ratingLabels[c.rating]+'</div>'
+      +'</div></div>'
+      +(c.admin_comment?'<div style="margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.5;border-top:1px solid var(--border);padding-top:7px">"'+esc(c.admin_comment)+'"</div>':'')
+      +'<div style="margin-top:8px;display:flex;gap:6px">'
+      +'<button class="btn btn-ghost btn-xs" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="'+c.rating+'" data-comment="'+esc(c.admin_comment||'')+'">Edit</button>'
+      +'</div>'
+      +'</div>';
+  });
+  return h;
+}
+
   el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
+  // Sub-tab buttons
+  el.querySelectorAll('.admin-sub-tab').forEach(t=>{
+    t.addEventListener('click',()=>switchAdminTab(t.dataset.sub));
+  });
+  // Re-rate buttons in reviews tab
+  el.querySelectorAll('[data-rerate]').forEach(b=>{
+    b.addEventListener('click',()=>{
+      openRateModal(b.getAttribute('data-rerate'),b.getAttribute('data-name'),b.getAttribute('data-date'),parseInt(b.getAttribute('data-rating')),b.getAttribute('data-comment'));
+    });
+  });
   el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? They will also be blocked in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove this staff member?'))return;const sid=b.getAttribute('data-rmstaff');b.disabled=true;const {error}=await db.from('staff').update({active:false}).eq('id',sid);if(error){toast(error.message,'error');b.disabled=false;return;}toast('Staff removed','info');staff=staff.filter(x=>x.id!==sid);await renderAdmin();});});
   const oasBtn=document.getElementById('open-add-staff');
   if(oasBtn)oasBtn.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
 
   // Attendance policy
+  } else if(adminTab==='policy'){
   const {data:settingsRow}=await db.from('settings').select('value').eq('key','attendance_policy').maybeSingle();
   let policy={weekoff:'1_per_week',weekend_penalty:true};
   if(settingsRow?.value){try{policy=typeof settingsRow.value==='string'?JSON.parse(settingsRow.value):settingsRow.value;}catch(e){}}
@@ -1360,7 +1495,10 @@ async function renderAdmin(){
     +'</div>'
     +'<button class="btn btn-primary btn-sm" id="save-att-policy-btn">Save Policy</button>'
     +'</div>';
-  el.insertAdjacentHTML('beforeend', policyHtml);
+  h+=policyHtml;
+  } else if(adminTab==='reviews'){
+  h+=await renderAdminReviews();
+  }
 
   const savePolicyBtn=document.getElementById('save-att-policy-btn');
   if(savePolicyBtn){
@@ -1389,9 +1527,10 @@ function openRateModal(compId, managerName, date, currentRating, currentComment)
 }
 
 function setStarRating(val){
-  document.querySelectorAll('.star-btn').forEach(b=>{
+  document.querySelectorAll('#star-picker .star-btn').forEach(b=>{
     const bv=parseInt(b.dataset.val);
-    b.classList.toggle('active', bv<=val);
+    b.classList.toggle('lit', bv<=val);
+    b.style.color=bv<=val?'var(--gold)':'var(--border2)';
   });
   document.getElementById('rating-label').textContent=val>0?RATING_LABELS[val]:'Tap a star to rate';
 }
@@ -1399,8 +1538,8 @@ function setStarRating(val){
 async function submitRating(){
   const compId=document.getElementById('rate-comp-id').value;
   const comment=document.getElementById('rate-comment').value.trim();
-  const activeStars=document.querySelectorAll('.star-btn.active');
-  const rating=activeStars.length;
+  const litStars=document.querySelectorAll('#star-picker .star-btn.lit');
+  const rating=litStars.length;
   if(!rating){toast('Please select a star rating','error');return;}
   setBtnLoading('rate-submit-btn',true);
   const {error}=await db.from('task_completions').update({
@@ -1411,9 +1550,18 @@ async function submitRating(){
   }).eq('id',compId);
   setBtnLoading('rate-submit-btn',false);
   if(error){toast(error.message,'error');return;}
+  // Notify the manager who completed the task
+  const {data:comp}=await db.from('task_completions')
+    .select('completed_by,task_id,tasks(title)')
+    .eq('id',compId).single();
+  if(comp?.completed_by&&comp.completed_by!==currentUser.id){
+    const taskTitle=comp.tasks?.title||'a task';
+    const stars='★'.repeat(rating)+'☆'.repeat(5-rating);
+    const msg=stars+' '+RATING_LABELS[rating]+' — Admin rated your completion of "'+taskTitle+'"'+(comment?' — "'+comment+'"':'');
+    await addNotif(comp.completed_by, msg, 'rating');
+  }
   toast('Rating saved!','success');
   closeModal('rate-modal');
-  // Refresh completions list
   loadTasksList();
   renderDashboard();
 }
@@ -1631,18 +1779,21 @@ document.addEventListener('DOMContentLoaded',()=>{
     const b=e.target.closest('.star-btn');
     if(!b)return;
     const hv=parseInt(b.dataset.val);
-    document.querySelectorAll('.star-btn').forEach(s=>s.classList.toggle('active',parseInt(s.dataset.val)<=hv));
+    document.querySelectorAll('#star-picker .star-btn').forEach(s=>{
+      const sv=parseInt(s.dataset.val);
+      s.style.color=sv<=hv?'var(--gold)':'var(--border2)';
+    });
     document.getElementById('rating-label').textContent=RATING_LABELS[hv]||'';
   });
   document.getElementById('star-picker').addEventListener('mouseleave',()=>{
-    // Restore to currently selected value
-    const active=document.querySelectorAll('.star-btn.active');
-    // Re-read from hidden input context
-    setStarRating(active.length);
+    const lit=document.querySelectorAll('#star-picker .star-btn.lit').length;
+    setStarRating(lit);
   });
   document.getElementById('star-picker').addEventListener('click',e=>{
     const b=e.target.closest('.star-btn');
     if(!b)return;
+    // Remove all lit, set new selection
+    document.querySelectorAll('#star-picker .star-btn').forEach(s=>s.classList.remove('lit'));
     const val=parseInt(b.dataset.val);
     setStarRating(val);
   });
