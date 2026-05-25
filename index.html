@@ -653,96 +653,121 @@ async function loadTasksList(){
   let h='';
   if(pending.length){h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${done.length})</span></div>`;done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
+  el._wiredCards=false;
   el.innerHTML=h;
   wireCards(el,ds);
 }
 
 function taskCard(t,isDone,comp,ds){
   const isAdmin=currentProfile.role==='admin',isOwn=t.assigned_to===currentUser.id;
-  const pb=t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'transparent';
   const an=t.profiles?.name||managers.find(m=>m.id===t.assigned_to)?.name||'—';
   const cat=t.category_id?taskCategories.find(c=>c.id===t.category_id):null;
   const cls=isDone?'completed':t.carried_forward?'carried':'';
-  const prDot=t.priority==='urgent'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--red);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
-    :t.priority==='high'?'<span style="width:7px;height:7px;border-radius:50%;background:var(--gold);flex-shrink:0;margin-top:6px;display:inline-block"></span>'
-    :'<span style="width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0;margin-top:6px;display:inline-block"></span>';
-  let h='<div class="task-item '+cls+'" id="ti-'+t.id+'">'
-    +'<div class="task-top" data-task-expand="'+t.id+'" style="cursor:pointer;user-select:none">'
-    +prDot
-    +'<div class="task-body" style="padding-left:8px">'
-    +'<div class="task-title'+(isDone?' done':'')+'">'+esc(t.title)+'</div>'
-    +'<div class="task-meta">'
-    +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
-    +(t.task_type==='recurring'
-      ?(()=>{
-        const sub=t.recur_subtype||'recurring_daily';
-        if(sub==='recurring_weekdays')return '<span class="badge badge-recurring">Weekdays</span>';
-        if(sub==='recurring_weekly'){
-          let days=t.recur_days;
-          if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
-          return '<span class="badge badge-recurring">'+(days&&days.length?days.join(', '):'Weekly')+'</span>';
-        }
-        return '<span class="badge badge-recurring">Daily</span>';
-      })()
-      :'<span class="badge badge-onetime">Once</span>')
-    +(isDone?'<span class="badge badge-done">Done</span>':'')
-    +(t.carried_forward?'<span class="badge badge-carried">Carried</span>':'')
-    +(isAdmin?'<span class="assignee-tag">'+esc(an)+'</span>':'')
-    +'</div>'
-    +'</div>'
-    +'<div class="task-expand-arrow" style="font-size:11px;color:var(--text3);flex-shrink:0;margin-left:6px;font-weight:700;transition:transform 0.2s">▾</div>'
-    +'</div>'
-    +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
-    +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
-    +(()=>{
-      let typeLabel='One-time';
-      if(t.task_type==='recurring'){
-        const sub=t.recur_subtype||'recurring_daily';
-        if(sub==='recurring_weekdays')typeLabel='Weekdays (Mon–Fri)';
-        else if(sub==='recurring_weekly'){
-          let days=t.recur_days;
-          if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
-          typeLabel='Weekly: '+(days&&days.length?days.join(', '):'?');
-        } else typeLabel='Daily';
-      }
-      return '<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Recurrence</div><div style="font-size:13px;font-weight:600">'+typeLabel+'</div></div>';
-    })()
-    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Priority</div><div style="font-size:13px;font-weight:600;color:'+(t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--text)')+'">'+t.priority.charAt(0).toUpperCase()+t.priority.slice(1)+'</div></div>'
-    +(t.scheduled_date?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Date</div><div style="font-size:13px;font-weight:600">'+fmtDisp(t.scheduled_date)+'</div></div>':'')
-    +(isAdmin?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Assigned</div><div style="font-size:13px;font-weight:600">'+esc(an)+'</div></div>':'')
-  const canEdit=isAdmin||(t.created_by===currentUser.id);
-  const canDelete=isAdmin;
-  // IST today check - block backdating recurring tasks for managers
+  const prColor=t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--border2)';
+  const prDot='<span style="width:7px;height:7px;border-radius:50%;background:'+prColor+';flex-shrink:0;margin-top:6px;display:inline-block"></span>';
+
+  // ── Recurrence badge ──
+  let recurBadge='<span class="badge badge-onetime">Once</span>';
+  if(t.task_type==='recurring'){
+    const sub=t.recur_subtype||'recurring_daily';
+    if(sub==='recurring_weekdays')recurBadge='<span class="badge badge-recurring">Weekdays</span>';
+    else if(sub==='recurring_weekly'){
+      let days=t.recur_days;
+      if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
+      recurBadge='<span class="badge badge-recurring">'+(days&&days.length?days.join(', '):'Weekly')+'</span>';
+    } else recurBadge='<span class="badge badge-recurring">Daily</span>';
+  }
+
+  // ── Recurrence label for detail panel ──
+  let typeLabel='One-time';
+  if(t.task_type==='recurring'){
+    const sub=t.recur_subtype||'recurring_daily';
+    if(sub==='recurring_weekdays')typeLabel='Weekdays (Mon–Fri)';
+    else if(sub==='recurring_weekly'){
+      let days=t.recur_days;
+      if(typeof days==='string'){try{days=JSON.parse(days);}catch(e){days=[];}}
+      typeLabel='Weekly: '+(days&&days.length?days.join(', '):'?');
+    } else typeLabel='Daily';
+  }
+
+  // ── IST check for recurring completion lock ──
   const isToday=ds===istToday();
   const canMarkComplete=isAdmin||isToday||t.task_type!=='recurring';
+  const canEdit=isAdmin||(t.created_by===currentUser.id);
+  const canDelete=isAdmin;
+
+  // ── Action buttons ──
+  let actions='';
   if(!isDone&&isOwn){
-    h+='<div class="task-actions">';
+    actions+='<div class="task-actions">';
     if(canMarkComplete){
-      h+='<button class="btn btn-success btn-sm" data-oc="'+t.id+'|'+esc(t.title)+'" style="flex:1">Mark Complete</button>';
+      actions+='<button class="btn btn-success btn-sm" data-oc="'+t.id+'|'+esc(t.title)+'" style="flex:1">Mark Complete</button>';
     } else {
-      h+='<div style="font-size:12px;color:var(--text3);font-style:italic;padding:4px 0">Recurring — complete on the day only</div>';
+      actions+='<div style="font-size:12px;color:var(--text3);font-style:italic;padding:4px 0">Recurring — complete on the day only</div>';
     }
-    h+=(canEdit?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button>':'')
-      +(canDelete?'<button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
-      +'</div>';
+    actions+=(canEdit?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button>':'');
+    actions+=(canDelete?'<button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'');
+    actions+='</div>';
   } else if(!isDone&&!isOwn&&(isAdmin||t.created_by===currentUser.id)){
-    h+='<div class="task-actions">'
+    actions='<div class="task-actions">'
       +(canEdit?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button>':'')
       +(canDelete?'<button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
       +'</div>';
   } else if(isDone&&comp){
     const canUndo=isAdmin||(isOwn&&comp.completed_date===ds);
-    const ratingBadge=comp.rating?('<span style="color:var(--gold);font-size:12px;font-weight:700">'+('★'.repeat(comp.rating))+'</span>'):'';
-    h+='<div class="task-actions" style="align-items:center">'
+    const ratingBadge=comp.rating?'<span style="color:var(--gold);font-size:12px;font-weight:700">'+'★'.repeat(comp.rating)+'</span>':'';
+    actions='<div class="task-actions" style="align-items:center">'
       +ratingBadge
       +'<button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details'+(comp.rating?' · Rated':'')+'</button>'
       +(canUndo?'<button class="btn btn-ghost btn-xs" data-undo="'+comp.id+'">Undo</button>':'')
       +'</div>';
   }
-  h+='</div></div>';
-  return h;
+
+  // ── Detail panel (grid) ──
+  const detailGrid='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
+    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">'
+    +'<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Recurrence</div>'
+    +'<div style="font-size:13px;font-weight:600">'+typeLabel+'</div></div>'
+    +'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">'
+    +'<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Priority</div>'
+    +'<div style="font-size:13px;font-weight:600;color:'+(t.priority==='urgent'?'var(--red)':t.priority==='high'?'var(--gold)':'var(--text)')+'">'+t.priority.charAt(0).toUpperCase()+t.priority.slice(1)+'</div></div>'
+    +(t.scheduled_date
+      ?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">'
+        +'<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Date</div>'
+        +'<div style="font-size:13px;font-weight:600">'+fmtDisp(t.scheduled_date)+'</div></div>'
+      :'')
+    +(isAdmin
+      ?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px">'
+        +'<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Assigned</div>'
+        +'<div style="font-size:13px;font-weight:600">'+esc(an)+'</div></div>'
+      :'')
+    +'</div>'; // ← closes grid
+
+  // ── Assemble full card ──
+  return ''
+    +'<div class="task-item '+cls+'" id="ti-'+t.id+'">'
+      +'<div class="task-top" data-task-expand="'+t.id+'" style="cursor:pointer;user-select:none">'
+        +prDot
+        +'<div class="task-body" style="padding-left:8px">'
+          +'<div class="task-title'+(isDone?' done':'')+'">' +esc(t.title)+'</div>'
+          +'<div class="task-meta">'
+            +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+            +recurBadge
+            +(isDone?'<span class="badge badge-done">Done</span>':'')
+            +(t.carried_forward?'<span class="badge badge-carried">Carried</span>':'')
+            +(isAdmin?'<span class="assignee-tag">'+esc(an)+'</span>':'')
+          +'</div>'
+        +'</div>'
+        +'<div class="task-expand-arrow" style="font-size:11px;color:var(--text3);flex-shrink:0;margin-left:6px;font-weight:700;transition:transform 0.2s">▾</div>'
+      +'</div>'
+      +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
+        +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
+        +detailGrid
+        +actions
+      +'</div>'
+    +'</div>';
 }
+
 // ── Recurring task day filter ──
 const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function taskShowsOnDate(t,dateStr){
