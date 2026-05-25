@@ -345,7 +345,7 @@ const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 const {createClient}=window.supabase;
 const db=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
 
-let currentUser=null,currentProfile=null,taskDate=new Date(),attDate=new Date(),completingTaskId=null,photoDataURL=null,managers=[],staff=[];
+let currentUser=null,currentProfile=null,taskDate=new Date(Date.now()+5.5*60*60*1000),attDate=new Date(Date.now()+5.5*60*60*1000),completingTaskId=null,photoDataURL=null,managers=[],staff=[];
 let attPolicy={weekoff:'1_per_week',weekend_penalty:true};
 let attDatedCache=[];
 let taskCategories=[];
@@ -367,7 +367,10 @@ function fmtIST(d){
   return ist.toISOString().split('T')[0];
 }
 function fmtDisp(s){
-  const today=istToday(),yest=fmt(new Date(Date.now()-86400000));
+  const today=istToday();
+  // IST yesterday = subtract 24h from IST midnight
+  const istOffset=5.5*60*60*1000;
+  const yest=new Date(Date.now()+istOffset-86400000).toISOString().split('T')[0];
   const d=new Date(s+'T00:00:00');
   const dayStr=d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
   if(s===today)return'Today · '+dayStr;
@@ -603,13 +606,14 @@ async function renderDashboard(){
   const {data:att}=await db.from('attendance').select('status').eq('date',today);
   const pres=(att||[]).filter(a=>a.status==='P').length;
   const half=(att||[]).filter(a=>a.status==='H').length;
-  const hr=new Date().getHours();
+  const istNowGr=new Date(Date.now()+5.5*60*60*1000);
+  const hr=istNowGr.getUTCHours();
   const gr=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
   const fn=(currentProfile.name||'there').split(' ')[0];
   const pending=todayTasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===today));
   const completed=todayTasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===today));
   let h='';
-  h+=`<div class="greeting-banner"><div class="greeting-text">${gr}, ${esc(fn)}.</div><div class="greeting-sub">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})}</div></div>`;
+  h+=`<div class="greeting-banner"><div class="greeting-text">${gr}, ${esc(fn)}.</div><div class="greeting-sub">${new Date(Date.now()+5.5*60*60*1000).toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'})}</div></div>`;
   h+=`<div class="stat-grid">
     <div class="stat-card"><div class="stat-label">Tasks Today</div><div class="stat-value ${pc}">${done}<span style="font-size:15px;opacity:0.45">/${total}</span></div><div class="progress-bar"><div class="progress-fill ${pc}" style="width:${pct}%"></div></div><div class="stat-sub">${pct}% complete</div></div>
     <div class="stat-card"><div class="stat-label">Staff Present</div><div class="stat-value accent">${pres+half}<span style="font-size:15px;opacity:0.45">/${staff.length}</span></div><div class="progress-bar"><div class="progress-fill accent" style="width:${staff.length>0?Math.round((pres+half*0.5)/staff.length*100):0}%"></div></div><div class="stat-sub">${half>0?half+' half-day':'today'}</div></div>
@@ -628,14 +632,14 @@ async function renderDashboard(){
 }
 
 // TASKS
-function initTaskDate(){taskDate=new Date();renderTasks();}
+function initTaskDate(){taskDate=new Date(Date.now()+5.5*60*60*1000);renderTasks();}
 function renderTasks(){
   const isAdmin=currentProfile.role==='admin';
   const el=document.getElementById('page-tasks');
   el.innerHTML='<div class="date-nav"><button class="date-nav-btn" id="tp">‹</button><span class="date-label" id="tdl">—</span><button class="date-today-btn" id="tt">Today</button><button class="date-nav-btn" id="tn">›</button></div><div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" id="tasks-add-btn">+ Add Task</button></div><div id="tasks-list"></div>';
   document.getElementById('tp').addEventListener('click',()=>{taskDate=new Date(taskDate-86400000);updTDL();loadTasksList();});
   document.getElementById('tn').addEventListener('click',()=>{taskDate=new Date(+taskDate+86400000);updTDL();loadTasksList();});
-  document.getElementById('tt').addEventListener('click',()=>{taskDate=new Date();updTDL();loadTasksList();});
+  document.getElementById('tt').addEventListener('click',()=>{taskDate=new Date(Date.now()+5.5*60*60*1000);updTDL();loadTasksList();});
   const tasksAddBtn=document.getElementById('tasks-add-btn');if(tasksAddBtn)tasksAddBtn.addEventListener('click',()=>openAddTask());
   updTDL();loadTasksList();
 }
@@ -927,7 +931,7 @@ function openAddTask(task){
   document.getElementById('edit-task-id').value=isEdit?task.id:'';
   document.getElementById('new-task-title').value=isEdit?task.title:'';
   document.getElementById('new-task-desc').value=isEdit?(task.description||''):'';
-  document.getElementById('new-task-date').value=isEdit?(task.scheduled_date||fmt(taskDate||new Date())):fmt(taskDate||new Date());
+  document.getElementById('new-task-date').value=isEdit?(task.scheduled_date||fmt(taskDate||new Date(Date.now()+5.5*60*60*1000))):fmt(taskDate||new Date(Date.now()+5.5*60*60*1000));
   const taskTypeVal=isEdit?(task.task_type||'onetime'):'onetime';
   document.getElementById('new-task-type').value=taskTypeVal;
   document.getElementById('new-task-priority').value=isEdit?task.priority:'normal';
@@ -1016,7 +1020,7 @@ async function deleteTask(id){
 }
 
 // ATTENDANCE
-function initAttDate(){attDate=new Date();renderAttendance();}
+function initAttDate(){attDate=new Date(Date.now()+5.5*60*60*1000);renderAttendance();}
 async function renderAttendance(){
   const el=document.getElementById('page-attendance');
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
@@ -1030,7 +1034,7 @@ async function renderAttendance(){
     +'<div id="att-list"></div>';
   document.getElementById('ap').addEventListener('click',()=>{attDate=new Date(+attDate-86400000);updADL();loadAttList();});
   document.getElementById('an').addEventListener('click',()=>{attDate=new Date(+attDate+86400000);updADL();loadAttList();});
-  document.getElementById('at').addEventListener('click',()=>{attDate=new Date();updADL();loadAttList();});
+  document.getElementById('at').addEventListener('click',()=>{attDate=new Date(Date.now()+5.5*60*60*1000);updADL();loadAttList();});
   document.getElementById('att-add-staff-btn').addEventListener('click',()=>{
     document.getElementById('new-staff-name').value='';
     document.getElementById('new-staff-role').value='';
@@ -1114,7 +1118,7 @@ async function loadAttList(){
 // SUMMARY
 async function renderSummary(){
   const el=document.getElementById('page-summary');
-  const now=new Date();
+  const now=new Date(Date.now()+5.5*60*60*1000);
   const months=[];
   for(let i=0;i<3;i++){const d=new Date(now.getFullYear(),now.getMonth()-i,1);months.push({label:d.toLocaleDateString('en-IN',{month:'short',year:'numeric'}),year:d.getFullYear(),month:d.getMonth()});}
   let h='<div class="month-chip-row">'+months.map((m,i)=>`<div class="month-chip ${i===0?'active':''}" data-y="${m.year}" data-m="${m.month}">${m.label}</div>`).join('')+'</div><div id="sum-body"><div class="loading-overlay"><div class="spinner-dark"></div></div></div>';
@@ -1695,13 +1699,14 @@ async function openNotifOverlay(){
 // ========================
 // MANAGER REVIEWS PAGE
 // ========================
-let mgrReviewMonth={year:new Date().getFullYear(),month:new Date().getMonth()};
+const _istNowInit=new Date(Date.now()+5.5*60*60*1000);
+let mgrReviewMonth={year:_istNowInit.getUTCFullYear(),month:_istNowInit.getUTCMonth()};
 let mgrReviewFilter='all'; // all | needs_work | average | good
 
 async function renderMgrReviews(){
   const el=document.getElementById('page-reviews-mgr');
-  const now=new Date();
-  // Month chips
+  const now=new Date(Date.now()+5.5*60*60*1000);
+  // Month chips (IST)
   const months=[];
   for(let i=0;i<4;i++){
     const d=new Date(now.getFullYear(),now.getMonth()-i,1);
@@ -1759,17 +1764,18 @@ async function loadMgrReviewBody(){
     else onTime++;
   });
   // Incomplete = assigned tasks that have NO completion at all this month
-  const completedTaskIds=new Set((allComps||[]).map(c=>c.task_id));
+  // Use ALL completions (rated + unrated) to determine what was done
+  const allCompIds=new Set([...(allComps||[]).map(c=>c.task_id),...(unrated||[]).map(c=>c.task_id)]);
   const today=istToday();
   (myAllTasks||[]).forEach(t=>{
-    if(completedTaskIds.has(t.id))return; // has at least one completion this month
+    if(allCompIds.has(t.id))return; // has at least one completion this month — not missed
     if(t.task_type==='onetime'){
-      // One-time: incomplete if scheduled this month and past due
-      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<=today)incomplete++;
+      // One-time: missed only if scheduled this month and already past due
+      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today)incomplete++;
     } else {
-      // Recurring: count as 1 incomplete unit if it never got completed this month at all
-      // (not counting per-day — just whether the task was ever done this month)
-      incomplete++;
+      // Recurring: missed if never completed even once this month
+      // Only count if the task should have appeared (at least one day in the period has passed)
+      if(sd<=today)incomplete++;
     }
   });
 
