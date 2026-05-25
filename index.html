@@ -625,6 +625,7 @@ async function renderDashboard(){
     h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${completed.length})</span></div>`;
     completed.slice(0,3).forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===today);h+=taskCard(t,true,c,today);});
   }
+  el._wiredCards=false;
   el.innerHTML=h;
   wireCards(el,today);
   const dashAddBtn=document.getElementById('dash-add-btn');if(dashAddBtn)dashAddBtn.addEventListener('click',()=>openAddTask());
@@ -1116,15 +1117,68 @@ async function loadAttList(){
 }
 
 // SUMMARY
+let summarySubTab='data';
+let summaryReviewMgr=null;
+
 async function renderSummary(){
   const el=document.getElementById('page-summary');
+  const isAdmin=currentProfile.role==='admin';
   const now=new Date(Date.now()+5.5*60*60*1000);
   const months=[];
-  for(let i=0;i<3;i++){const d=new Date(now.getFullYear(),now.getMonth()-i,1);months.push({label:d.toLocaleDateString('en-IN',{month:'short',year:'numeric'}),year:d.getFullYear(),month:d.getMonth()});}
-  let h='<div class="month-chip-row">'+months.map((m,i)=>`<div class="month-chip ${i===0?'active':''}" data-y="${m.year}" data-m="${m.month}">${m.label}</div>`).join('')+'</div><div id="sum-body"><div class="loading-overlay"><div class="spinner-dark"></div></div></div>';
+  for(let i=0;i<4;i++){const d=new Date(now.getUTCFullYear(),now.getUTCMonth()-i,1);months.push({label:d.toLocaleDateString('en-IN',{month:'short',year:'numeric'}),year:d.getFullYear(),month:d.getMonth()});}
+
+  let h='<div class="month-chip-row">'+months.map((m,i)=>'<div class="month-chip'+(i===0?' active':'')+'" data-y="'+m.year+'" data-m="'+m.month+'">'+m.label+'</div>').join('')+'</div>';
+
+  if(isAdmin){
+    h+='<div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:14px">'
+      +'<button class="sum-sub-tab" data-sub="data" style="flex:1;padding:9px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:'+(summarySubTab==='data'?'var(--accent)':'transparent')+';color:'+(summarySubTab==='data'?'#fff':'var(--text3)')+'">Summary Data</button>'
+      +'<button class="sum-sub-tab" data-sub="reviews" style="flex:1;padding:9px;font-size:12px;font-weight:700;cursor:pointer;border:none;background:'+(summarySubTab==='reviews'?'var(--accent)':'transparent')+';color:'+(summarySubTab==='reviews'?'#fff':'var(--text3)')+'">Manager Reviews</button>'
+      +'</div>';
+  }
+  h+='<div id="sum-body"><div class="loading-overlay"><div class="spinner-dark"></div></div></div>';
   el.innerHTML=h;
-  el.querySelectorAll('.month-chip').forEach(c=>{c.addEventListener('click',()=>{el.querySelectorAll('.month-chip').forEach(x=>x.classList.remove('active'));c.classList.add('active');loadSummary(+c.dataset.y,+c.dataset.m);});});
-  loadSummary(now.getFullYear(),now.getMonth());
+
+  el.querySelectorAll('.month-chip').forEach(c=>{
+    c.addEventListener('click',()=>{
+      el.querySelectorAll('.month-chip').forEach(x=>x.classList.remove('active'));
+      c.classList.add('active');
+      const y=+c.dataset.y,m=+c.dataset.m;
+      if(isAdmin&&summarySubTab==='reviews')loadAdminReviewsInSummary(y,m);
+      else loadSummary(y,m);
+    });
+  });
+  if(isAdmin){
+    el.querySelectorAll('.sum-sub-tab').forEach(t=>{
+      t.addEventListener('click',()=>{summarySubTab=t.dataset.sub;renderSummary();});
+    });
+  }
+  const cy=months[0].year,cm=months[0].month;
+  if(isAdmin&&summarySubTab==='reviews')loadAdminReviewsInSummary(cy,cm);
+  else loadSummary(cy,cm);
+}
+
+async function loadAdminReviewsInSummary(year,month){
+  const el=document.getElementById('sum-body');if(!el)return;
+  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  const {data:mgrs}=await db.from('profiles').select('id,name').eq('role','manager').eq('status','active').order('name');
+  if(!mgrs||!mgrs.length){el.innerHTML='<div style="padding:24px;text-align:center;font-size:13px;color:var(--text3)">No managers found.</div>';return;}
+  if(!summaryReviewMgr)summaryReviewMgr=mgrs[0].id;
+  let h='<div class="field" style="margin-bottom:14px"><label>View Manager</label>'
+    +'<select id="sum-mgr-picker" style="width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-family:var(--font);font-size:14px;color:var(--text);outline:none;-webkit-appearance:none">'
+    +mgrs.map(m=>'<option value="'+m.id+'"'+(m.id===summaryReviewMgr?' selected':'')+'>'+esc(m.name)+'</option>').join('')
+    +'</select></div><div id="sum-mgr-body"></div>';
+  el.innerHTML=h;
+  el.querySelector('#sum-mgr-picker').addEventListener('change',function(){summaryReviewMgr=this.value;renderMgrReviewForAdmin(year,month,summaryReviewMgr);});
+  renderMgrReviewForAdmin(year,month,summaryReviewMgr);
+}
+
+async function renderMgrReviewForAdmin(year,month,mgrId){
+  const el=document.getElementById('sum-mgr-body');if(!el)return;
+  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  const sd=year+'-'+String(month+1).padStart(2,'0')+'-01';
+  const ed=new Date(year,month+1,0);
+  const es=fmt(ed);
+  await _renderMgrReviewBody(year,month,mgrId,sd,es,el);
 }
 async function loadSummary(year,month){
   const el=document.getElementById('sum-body');if(!el)return;
@@ -1735,7 +1789,11 @@ async function loadMgrReviewBody(){
   const ed=new Date(year,month+1,0);
   const es=fmt(ed);
   const myId=currentUser.id;
+  await _renderMgrReviewBody(year,month,myId,sd,es,el);
+}
 
+async function _renderMgrReviewBody(year,month,myId,sd,es,el){
+  const now2=new Date(year,month+1,0); // same as ed
   // Fetch ALL completions this month (rated + unrated)
   const {data:allComps}=await db.from('task_completions')
     .select('id,rating,admin_comment,completed_date,task_id,tasks(title,category_id,task_type,carried_forward,scheduled_date)')
@@ -1743,10 +1801,12 @@ async function loadMgrReviewBody(){
     .gte('completed_date',sd).lte('completed_date',es)
     .order('completed_date',{ascending:false});
 
-  // Fetch all tasks assigned to this manager (for incomplete count)
+  // Fetch tasks assigned this manager relevant to this month
+  // One-time: scheduled this month. Recurring: all active ones (they appear every day/week)
   const {data:myAllTasks}=await db.from('tasks')
-    .select('id,title,task_type,scheduled_date,carried_forward,recur_subtype')
-    .eq('assigned_to',myId);
+    .select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
+    .eq('assigned_to',myId)
+    .or('task_type.eq.recurring,and(task_type.eq.onetime,scheduled_date.gte.'+sd+',scheduled_date.lte.'+es+')');
 
   const allRated=(allComps||[]).filter(c=>c.rating!=null);
   const unrated=(allComps||[]).filter(c=>c.rating==null);
@@ -1765,7 +1825,7 @@ async function loadMgrReviewBody(){
   });
   // Incomplete = assigned tasks that have NO completion at all this month
   // Use ALL completions (rated + unrated) to determine what was done
-  const allCompIds=new Set([...(allComps||[]).map(c=>c.task_id),...(unrated||[]).map(c=>c.task_id)]);
+  const allCompIds=new Set((allComps||[]).map(c=>c.task_id)) // all completions this month;
   const today=istToday();
   (myAllTasks||[]).forEach(t=>{
     if(allCompIds.has(t.id))return; // has at least one completion this month — not missed
