@@ -538,7 +538,7 @@ async function renderDashboard(){
     <div class="stat-card"><div class="stat-label">Tasks Today</div><div class="stat-value ${pc}">${done}<span style="font-size:15px;opacity:0.45">/${total}</span></div><div class="progress-bar"><div class="progress-fill ${pc}" style="width:${pct}%"></div></div><div class="stat-sub">${pct}% complete</div></div>
     <div class="stat-card"><div class="stat-label">Staff Present</div><div class="stat-value accent">${pres+half}<span style="font-size:15px;opacity:0.45">/${staff.length}</span></div><div class="progress-bar"><div class="progress-fill accent" style="width:${staff.length>0?Math.round((pres+half*0.5)/staff.length*100):0}%"></div></div><div class="stat-sub">${half>0?half+' half-day':'today'}</div></div>
   </div>`;
-  h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span>${isAdmin?'<button class="btn btn-primary btn-sm" id="dash-add-btn">+ Add Task</button>':''}</div>`;
+  h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span><button class="btn btn-primary btn-sm" id="dash-add-btn">+ Add Task</button></div>`;
   if(!pending.length)h+='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--accent)">✓✓</div><div class="empty-text">All tasks done for today!</div></div>';
   else{pending.slice(0,4).forEach(t=>{h+=taskCard(t,false,null,today);});if(pending.length>4)h+=`<button class="btn btn-ghost btn-full" id="dash-viewall-btn" style="margin-top:4px">View all ${pending.length} pending →</button>`;}
   if(completed.length){
@@ -547,7 +547,7 @@ async function renderDashboard(){
   }
   el.innerHTML=h;
   wireCards(el,today);
-  if(isAdmin){const b=document.getElementById('dash-add-btn');if(b)b.addEventListener('click',openAddTask);}
+  const dashAddBtn=document.getElementById('dash-add-btn');if(dashAddBtn)dashAddBtn.addEventListener('click',()=>openAddTask());
   const va=document.getElementById('dash-viewall-btn');if(va)va.addEventListener('click',()=>switchTab('tasks'));
 }
 
@@ -556,11 +556,11 @@ function initTaskDate(){taskDate=new Date();renderTasks();}
 function renderTasks(){
   const isAdmin=currentProfile.role==='admin';
   const el=document.getElementById('page-tasks');
-  el.innerHTML=`<div class="date-nav"><button class="date-nav-btn" id="tp">‹</button><span class="date-label" id="tdl">—</span><button class="date-today-btn" id="tt">Today</button><button class="date-nav-btn" id="tn">›</button></div>${isAdmin?'<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" id="tasks-add-btn">+ Add Task</button></div>':''}<div id="tasks-list"></div>`;
+  el.innerHTML='<div class="date-nav"><button class="date-nav-btn" id="tp">‹</button><span class="date-label" id="tdl">—</span><button class="date-today-btn" id="tt">Today</button><button class="date-nav-btn" id="tn">›</button></div><div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" id="tasks-add-btn">+ Add Task</button></div><div id="tasks-list"></div>';
   document.getElementById('tp').addEventListener('click',()=>{taskDate=new Date(taskDate-86400000);updTDL();loadTasksList();});
   document.getElementById('tn').addEventListener('click',()=>{taskDate=new Date(+taskDate+86400000);updTDL();loadTasksList();});
   document.getElementById('tt').addEventListener('click',()=>{taskDate=new Date();updTDL();loadTasksList();});
-  if(isAdmin){const b=document.getElementById('tasks-add-btn');if(b)b.addEventListener('click',openAddTask);}
+  const tasksAddBtn=document.getElementById('tasks-add-btn');if(tasksAddBtn)tasksAddBtn.addEventListener('click',()=>openAddTask());
   updTDL();loadTasksList();
 }
 function updTDL(){const e=document.getElementById('tdl');if(e)e.textContent=fmtDisp(fmt(taskDate));}
@@ -613,13 +613,19 @@ function taskCard(t,isDone,comp,ds){
     +(t.scheduled_date?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Date</div><div style="font-size:13px;font-weight:600">'+fmtDisp(t.scheduled_date)+'</div></div>':'')
     +(isAdmin?'<div style="background:var(--surface2);border-radius:8px;padding:8px 10px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;color:var(--text3);margin-bottom:3px">Assigned</div><div style="font-size:13px;font-weight:600">'+esc(an)+'</div></div>':'')
     +'</div>';
+  const canEdit=isAdmin||(t.created_by===currentUser.id);
+  const canDelete=isAdmin;
   if(!isDone&&isOwn){
     h+='<div class="task-actions">'
       +'<button class="btn btn-success btn-sm" data-oc="'+t.id+'|'+esc(t.title)+'" style="flex:1">Mark Complete</button>'
-      +(isAdmin?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button><button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
+      +(canEdit?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button>':'')
+      +(canDelete?'<button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
       +'</div>';
-  } else if(!isDone&&isAdmin&&!isOwn){
-    h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button><button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button></div>';
+  } else if(!isDone&&!isOwn&&(isAdmin||t.created_by===currentUser.id)){
+    h+='<div class="task-actions">'
+      +(canEdit?'<button class="btn btn-ghost btn-xs" data-edit-task="'+t.id+'">Edit</button>':'')
+      +(canDelete?'<button class="btn btn-danger btn-xs" data-del="'+t.id+'">Delete</button>':'')
+      +'</div>';
   } else if(isDone&&comp){
     const canUndo=isAdmin||(isOwn&&comp.completed_date===ds);
     h+='<div class="task-actions"><button class="btn btn-ghost btn-xs" data-vc="'+comp.id+'">Details</button>'+(canUndo?'<button class="btn btn-ghost btn-xs" data-undo="'+comp.id+'">Undo</button>':'')+'</div>';
@@ -726,7 +732,18 @@ function openAddTask(task){
   document.getElementById('new-task-priority').value=isEdit?task.priority:'normal';
   document.getElementById('new-task-date-field').style.display=(isEdit?task.task_type:'onetime')==='recurring'?'none':'';
   const sel=document.getElementById('new-task-assignee');
-  sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>'<option value="'+m.id+'"'+(isEdit&&task.assigned_to===m.id?' selected':'')+'>'+esc(m.name)+'</option>').join('');
+  const isAdmin=currentProfile.role==='admin';
+  if(isAdmin){
+    // Admin can assign to anyone
+    sel.innerHTML='<option value="">Select manager...</option>'+managers.map(m=>'<option value="'+m.id+'"'+(isEdit&&task.assigned_to===m.id?' selected':'')+'>'+esc(m.name)+'</option>').join('');
+    sel.disabled=false;
+    sel.closest('.field').style.display='';
+  } else {
+    // Manager always assigns to themselves
+    sel.innerHTML='<option value="'+currentUser.id+'" selected>Myself ('+esc(currentProfile.name||'Me')+')</option>';
+    sel.disabled=true;
+    sel.closest('.field').style.display='';
+  }
   populateCategorySelect('new-task-category', isEdit?task.category_id:null);
   openModal('add-task-modal');
 }
@@ -741,20 +758,25 @@ async function submitNewTask(){
   const editId=document.getElementById('edit-task-id').value;
   const isEdit=!!editId;
   if(!title){toast('Task title required','error');return;}
-  if(!assignee){toast('Please assign to a manager','error');return;}
+  // For managers, assignee is always themselves (set by disabled select)
+  const finalAssignee = assignee || currentUser.id;
+  if(!finalAssignee){toast('Please assign to a manager','error');return;}
   if(type==='onetime'&&!date){toast('Date required for one-time tasks','error');return;}
   setBtnLoading('add-task-submit-btn',true);
-  const payload={title,description:desc||null,assigned_to:assignee,task_type:type,
+  const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:type,
     scheduled_date:type==='onetime'?date:null,priority,category_id:catId};
   let error;
   if(isEdit){
     ({error}=await db.from('tasks').update(payload).eq('id',editId));
   } else {
     ({error}=await db.from('tasks').insert({...payload,status:'pending',created_by:currentUser.id,carried_forward:false}));
-    if(!error)await addNotif(assignee,'New task: "'+title+'"','task_assigned');
+    if(!error)await addNotif(finalAssignee,'New task: "'+title+'"','task_assigned');
   }
   setBtnLoading('add-task-submit-btn',false);
-  if(error){toast(error.message,'error');return;}
+  if(error){
+    const msg=error.message&&error.message.includes('policy')?'Permission denied. Contact admin to enable task creation for managers.':error.message;
+    toast(msg,'error');return;
+  }
   toast(isEdit?'Task updated!':'Task added!','success');
   closeModal('add-task-modal');loadTasksList();renderDashboard();
 }
