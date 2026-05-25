@@ -628,7 +628,9 @@ function taskCard(t,isDone,comp,ds){
   return h;
 }
 function wireCards(container,ds){
-  // Single delegated listener - most reliable approach for dynamic content
+  // Guard: only attach one listener per container element
+  if(container._wiredCards)return;
+  container._wiredCards=true;
   container.addEventListener('click',async function handler(e){
     // Expand/collapse: click on task-top header
     const expandHeader=e.target.closest('[data-task-expand]');
