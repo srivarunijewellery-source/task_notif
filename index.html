@@ -1077,7 +1077,7 @@ async function addNotif(userId,message,type){await db.from('task_notifications')
 async function renderAdmin(){
   if(currentProfile.role!=='admin')return;
   const el=document.getElementById('page-admin');
-  el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
+  // Fetch everything first, then render in one shot (avoids blank flash)
   const [{data:pending},{data:active}]=await Promise.all([
     db.from('profiles').select('*').eq('status','pending'),
     db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name')
@@ -1118,16 +1118,21 @@ async function renderAdmin(){
     sel.addEventListener('change',async()=>{
       const sid=sel.dataset.sid;
       const val=sel.value;
-      await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);
-      await loadStaff();
-      toast('Day off allowance updated','success');
+      sel.disabled=true;
+      const {error}=await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);
+      sel.disabled=false;
+      if(error){toast('Failed to save: '+error.message,'error');renderAdmin();return;}
+      // Update the global staff array in place (no full re-render needed)
+      const s=staff.find(x=>x.id===sid);
+      if(s)s.weekoff_allowance=val;
+      toast('Day off updated','success');
     });
   });
   // Wire buttons
   el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
   el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? They will also be blocked in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
-  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove staff?'))return;await db.from('staff').update({active:false}).eq('id',b.getAttribute('data-rmstaff'));await loadStaff();renderAdmin();});});
+  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove this staff member?'))return;const sid=b.getAttribute('data-rmstaff');b.disabled=true;const {error}=await db.from('staff').update({active:false}).eq('id',sid);if(error){toast(error.message,'error');b.disabled=false;return;}toast('Staff removed','info');await renderAdmin();});});
   const oasBtn=document.getElementById('open-add-staff');
   if(oasBtn)oasBtn.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
 
@@ -1346,10 +1351,12 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(dup){toast('Staff member "'+name+'" already exists. Use a differentiator (e.g. "Priya - Sales").','error');return;}
     const {error}=await db.from('staff').insert({name,role:role||null,active:true});
     if(error){toast(error.message,'error');return;}
-    toast(name+' added to staff!','success');closeModal('add-staff-modal');await loadStaff();
+    closeModal('add-staff-modal');
+    toast(name+' added to staff!','success');
     // Refresh whichever page is active
-    if(document.getElementById('page-admin').classList.contains('active'))renderAdmin();
-    if(document.getElementById('page-attendance').classList.contains('active'))renderAttendance();
+    if(document.getElementById('page-admin').classList.contains('active'))await renderAdmin();
+    else if(document.getElementById('page-attendance').classList.contains('active'))await renderAttendance();
+    else await loadStaff();
   });
 
   // View comp close
