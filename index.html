@@ -379,26 +379,70 @@ async function doSignup(){
   const email=document.getElementById('signup-email').value.trim();
   const pass=document.getElementById('signup-pass').value;
   const reqRole=document.getElementById('signup-role').value;
-  dbg('doSignup',{name,email,reqRole});
   if(!name||!email||!pass){toast('Fill all fields','error');return;}
   if(pass.length<6){toast('Password min 6 characters','error');return;}
   setBtnLoading('signup-btn',true);
-  const {data,error}=await db.auth.signUp({email,password:pass,options:{data:{name:name,requested_role:reqRole}}});
+
+  const {data,error}=await db.auth.signUp({
+    email,password:pass,
+    options:{data:{name,requested_role:reqRole}}
+  });
   setBtnLoading('signup-btn',false);
-  dbg('Signup result',{userId:data?.user?.id,session:!!data?.session,error:error?.message});
-  if(error){toast(error.message,'error');return;}
-  // If we have a user id immediately (email confirm off), upsert profile now
-  if(data.user?.id){
-    const profileData={id:data.user.id,email,name:sname,role:'pending',status:'pending'};
-    // Try adding requested_role - ignore error if column doesn't exist
-    const {error:pe}=await db.from('profiles').upsert(profileData);
-    dbg('Profile upsert',{error:pe?.message});
-    // Try to also set requested_role separately
-    if(!pe){
-      await db.from('profiles').update({requested_role:reqRole}).eq('id',data.user.id);
+
+  // Handle "User already registered" — check their existing profile status
+  if(error){
+    const isAlreadyExists=error.message&&(
+      error.message.toLowerCase().includes('already registered')||
+      error.message.toLowerCase().includes('already been registered')||
+      error.message.toLowerCase().includes('user already exists')
+    );
+    if(isAlreadyExists){
+      // Try to sign in to check their profile status
+      const {data:signinData,error:signinErr}=await db.auth.signInWithPassword({email,password:pass});
+      if(!signinErr&&signinData?.user){
+        const {data:prof}=await db.from('profiles').select('status,role').eq('id',signinData.user.id).single();
+        await db.auth.signOut();
+        if(prof?.status==='pending'){
+          toast('Your request is already pending admin approval.','info');
+          showLogin();return;
+        }
+        if(prof?.status==='blocked'){
+          toast('This account has been blocked. Contact admin.','error');return;
+        }
+        if(prof?.status==='active'){
+          toast('This email is already registered. Please sign in instead.','info');
+          showLogin();return;
+        }
+        // Profile doesn't exist — re-create it
+        await db.from('profiles').upsert({id:signinData.user.id,email,name,role:'pending',status:'pending',requested_role:reqRole});
+        await db.auth.signOut();
+        toast('Request re-submitted! Admin will approve your account.','success');
+        showLogin();return;
+      } else {
+        // Wrong password for existing account
+        toast('This email is already registered with a different password. Try signing in instead.','error');
+        return;
+      }
+    }
+    toast(error.message,'error');return;
+  }
+
+  // Success — upsert profile (best effort; may fail if email confirm is on and no session yet)
+  const uid=data.user?.id;
+  if(uid){
+    const {error:pe}=await db.from('profiles').upsert({
+      id:uid,email,name,role:'pending',status:'pending',requested_role:reqRole
+    });
+    // If upsert failed due to RLS (no session yet), a trigger or admin SQL will handle it
+    // Don't block the user — Auth signup already succeeded
+    if(pe&&pe.message){
+      // Log silently but don't show error — account was created in Auth
+      console.warn('Profile upsert warning (non-fatal):', pe.message);
     }
   }
-  toast('Request submitted! Admin will approve your account.','success');
+
+  // Always show success — auth account was created regardless of profile upsert
+  toast('Request submitted! Admin will review and approve your account.','success');
   showLogin();
 }
 
