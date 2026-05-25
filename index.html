@@ -1355,89 +1355,11 @@ function switchAdminTab(name){
   renderAdmin();
 }
 
-async function renderAdmin(){
-  if(currentProfile.role!=='admin')return;
-  const el=document.getElementById('page-admin');
-  const [{data:pending},{data:active}]=await Promise.all([
-    db.from('profiles').select('*').eq('status','pending'),
-    db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name')
-  ]);
-  // Sub-tab bar
-  const subTabs=[
-    {key:'approvals',label:'Approvals',badge:(pending||[]).length},
-    {key:'managers',label:'Managers'},
-    {key:'staff',label:'Staff'},
-    {key:'reviews',label:'Reviews'},
-    {key:'policy',label:'Policy'},
-  ];
-  let h='<div style="display:flex;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px">'
-    +subTabs.map(t=>'<button class="admin-sub-tab'+(adminTab===t.key?' active':'')+'" data-sub="'+t.key+'" style="flex:1;padding:9px 4px;font-size:11px;font-weight:700;cursor:pointer;border:none;background:'+(adminTab===t.key?'var(--accent)':'transparent')+';color:'+(adminTab===t.key?'#fff':'var(--text3)')+';transition:all 0.15s;white-space:nowrap">'
-      +t.label+(t.badge?'<span style="margin-left:4px;background:var(--red);color:#fff;border-radius:8px;padding:1px 5px;font-size:9px">'+t.badge+'</span>':'')
-      +'</button>').join('')
-    +'</div>';
-
-  // Render only active sub-tab content
-  if(adminTab==='approvals'){
-  if(pending&&pending.length){
-    h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;
-    pending.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)}</div></div><span class="badge badge-carried">Pending</span></div><div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>${p.requested_role||'manager'}</strong></div><div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="${p.id}|${p.requested_role||'manager'}">Approve</button><button class="btn btn-danger btn-sm" style="flex:1" data-reject="${p.id}">Reject</button></div></div>`;});
-  }
-  } else if(adminTab==='managers'){
-  h+=`<div class="section-header" style="margin-top:8px"><span class="section-title">Managers (${(active||[]).length})</span></div>`;
-  if(!active||!active.length)h+='<div class="empty" style="padding:22px"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">○</div><div class="empty-text">No active managers yet.</div></div>';
-  else active.forEach(p=>{h+=`<div class="card"><div class="card-header"><div><div class="card-title">${esc(p.name||'—')}</div><div class="card-sub">${esc(p.email)} · ${p.role}</div></div><span class="badge badge-done">Active</span></div><button class="btn btn-danger btn-xs" data-block="${p.id}">Block</button></div>`;});
-  } else if(adminTab==='staff'){
-  // Always fetch staff directly in admin view
-  let {data:adminStaff,error:staffErr}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');
-  if(staffErr&&staffErr.message&&staffErr.message.includes('weekoff_allowance')){
-    const res=await db.from('staff').select('id,name,role,active').eq('active',true).order('name');
-    adminStaff=(res.data||[]).map(s=>({...s,weekoff_allowance:null}));
-  }
-  if(adminStaff)staff=adminStaff;
-  h+='<div class="section-header" style="margin-top:8px"><span class="section-title">Staff ('+staff.length+')</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>';
-  if(!staff.length)h+='<div class="empty" style="padding:22px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:8px 0">No staff added yet. Use + Add above.</div></div>';
-  else h+=staff.map(s=>{
-    const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
-    const wkOpts=['none','1_per_month','1_per_2weeks','1_per_week'];
-    const wkLabels={'none':'No day off','1_per_month':'1/month','1_per_2weeks':'1/2 weeks','1_per_week':'1/week'};
-    const curWk=s.weekoff_allowance||attPolicy.weekoff||'1_per_week';
-    const wkSelect='<select class="staff-weekoff-sel" data-sid="'+s.id+'" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font);margin-top:3px;cursor:pointer">'
-      +wkOpts.map(o=>'<option value="'+o+'"'+(curWk===o?' selected':'')+'>'+wkLabels[o]+'</option>').join('')
-      +'</select>';
-    return '<div class="staff-row" style="flex-wrap:wrap;gap:8px">'
-      +'<div class="staff-avatar">'+((s.name||'?')[0].toUpperCase())+'</div>'
-      +'<div style="flex:1;min-width:120px"><div class="staff-name">'+esc(s.name)+'</div>'+roleTag
-      +'<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><span style="font-size:10px;color:var(--text3);font-weight:600">DAY OFF:</span>'+wkSelect+'</div>'
-      +'</div>'
-      +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button>'
-      +'</div>';
-  }).join('');
-  el.innerHTML=h;
-
-  // Wire weekoff per-staff selects
-  el.querySelectorAll('.staff-weekoff-sel').forEach(sel=>{
-    sel.addEventListener('change',async()=>{
-      const sid=sel.dataset.sid;
-      const val=sel.value;
-      sel.disabled=true;
-      const {error}=await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);
-      sel.disabled=false;
-      if(error){toast('Failed to save: '+error.message,'error');renderAdmin();return;}
-      // Update the global staff array in place (no full re-render needed)
-      const s=staff.find(x=>x.id===sid);
-      if(s)s.weekoff_allowance=val;
-      toast('Day off updated','success');
-    });
-  });
-  // Wire buttons
-// Render admin reviews sub-tab
 async function renderAdminReviews(){
   const {data:comps}=await db.from('task_completions')
     .select('id,rating,admin_comment,rated_at,completed_date,completed_by,task_id,profiles:completed_by(name),tasks(title,category_id)')
-    .not('rating','is',null)
-    .order('rated_at',{ascending:false})
-    .limit(50);
-  const ratingLabels=['','Needs improvement','Below average','Average','Good','Excellent'];
+    .not('rating','is',null).order('rated_at',{ascending:false}).limit(50);
+  const RL=['','Needs improvement','Below average','Average','Good','Excellent'];
   if(!comps||!comps.length)return '<div class="empty" style="padding:32px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:14px;color:var(--text3);padding:8px 0">No reviews yet.</div></div>';
   let h='<div class="section-header"><span class="section-title">All Reviews ('+comps.length+')</span></div>';
   comps.forEach(c=>{
@@ -1445,71 +1367,131 @@ async function renderAdminReviews(){
     const stars='★'.repeat(c.rating)+'☆'.repeat(5-c.rating);
     h+='<div class="card" style="margin-bottom:9px">'
       +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
-      +'<div style="flex:1;min-width:0">'
-      +'<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:2px">'+esc(c.tasks?.title||'—')+'</div>'
+      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:700;margin-bottom:2px">'+esc(c.tasks?.title||'—')+'</div>'
       +'<div style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||'?')+' · '+c.completed_date+'</div>'
       +(cat?'<span class="badge" style="margin-top:5px;background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
       +'</div>'
-      +'<div style="text-align:right;flex-shrink:0">'
-      +'<div style="color:var(--gold);font-size:16px;letter-spacing:1px">'+stars+'</div>'
-      +'<div style="font-size:11px;font-weight:600;color:var(--text2)">'+ratingLabels[c.rating]+'</div>'
-      +'</div></div>'
+      +'<div style="text-align:right;flex-shrink:0"><div style="color:var(--gold);font-size:16px;letter-spacing:1px">'+stars+'</div>'
+      +'<div style="font-size:11px;font-weight:600;color:var(--text2)">'+RL[c.rating]+'</div></div></div>'
       +(c.admin_comment?'<div style="margin-top:8px;font-size:12px;color:var(--text2);font-style:italic;line-height:1.5;border-top:1px solid var(--border);padding-top:7px">"'+esc(c.admin_comment)+'"</div>':'')
-      +'<div style="margin-top:8px;display:flex;gap:6px">'
-      +'<button class="btn btn-ghost btn-xs" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="'+c.rating+'" data-comment="'+esc(c.admin_comment||'')+'">Edit</button>'
-      +'</div>'
+      +'<div style="margin-top:8px"><button class="btn btn-ghost btn-xs" data-rerate="'+c.id+'" data-name="'+esc(c.profiles?.name||'?')+'" data-date="'+c.completed_date+'" data-rating="'+c.rating+'" data-comment="'+esc(c.admin_comment||'')+'">Edit Rating</button></div>'
       +'</div>';
   });
   return h;
 }
 
+async function renderAdmin(){
+  if(currentProfile.role!=='admin')return;
+  const el=document.getElementById('page-admin');
+
+  // Sub-tab bar (always shown)
+  const {data:pending}=await db.from('profiles').select('*').eq('status','pending');
+  const subTabs=[
+    {key:'approvals',label:'Approvals',badge:(pending||[]).length},
+    {key:'managers',label:'Managers'},
+    {key:'staff',label:'Staff'},
+    {key:'reviews',label:'Reviews'},
+    {key:'policy',label:'Policy'},
+  ];
+  let h='<div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px">'
+    +subTabs.map(t=>'<button class="admin-sub-tab" data-sub="'+t.key+'" style="flex:1;padding:9px 3px;font-size:11px;font-weight:700;cursor:pointer;border:none;'
+      +'background:'+(adminTab===t.key?'var(--accent)':'transparent')+';color:'+(adminTab===t.key?'#fff':'var(--text3)')+';transition:all 0.15s;white-space:nowrap">'
+      +t.label+(t.badge?'<span style="margin-left:3px;background:var(--red);color:#fff;border-radius:8px;padding:1px 5px;font-size:9px">'+t.badge+'</span>':'')
+      +'</button>').join('')
+    +'</div>';
+
+  // ── APPROVALS ──
+  if(adminTab==='approvals'){
+    if(!pending||!pending.length){
+      h+='<div class="empty" style="padding:32px"><div style="font-size:28px;text-align:center;color:var(--accent)">✓</div><div style="text-align:center;font-size:14px;color:var(--text3);padding:8px 0">No pending requests.</div></div>';
+    } else {
+      h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';
+      pending.forEach(p=>{
+        h+='<div class="card"><div class="card-header"><div><div class="card-title">'+esc(p.name||'—')+'</div><div class="card-sub">'+esc(p.email)+'</div></div><span class="badge badge-carried">Pending</span></div>'
+          +'<div style="font-size:12px;color:var(--text3);margin-bottom:11px">Requested as: <strong>'+(p.requested_role||'manager')+'</strong></div>'
+          +'<div style="display:flex;gap:7px"><button class="btn btn-success btn-sm" style="flex:1" data-approve="'+p.id+'|'+(p.requested_role||'manager')+'">Approve</button>'
+          +'<button class="btn btn-danger btn-sm" style="flex:1" data-reject="'+p.id+'">Reject</button></div></div>';
+      });
+    }
+  }
+
+  // ── MANAGERS ──
+  else if(adminTab==='managers'){
+    const {data:active}=await db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name');
+    h+='<div class="section-header"><span class="section-title">Managers ('+(active||[]).length+')</span></div>';
+    if(!active||!active.length){
+      h+='<div class="empty" style="padding:24px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:6px 0">No active managers yet.</div></div>';
+    } else {
+      active.forEach(p=>{
+        h+='<div class="card"><div class="card-header"><div><div class="card-title">'+esc(p.name||'—')+'</div><div class="card-sub">'+esc(p.email)+'</div></div><span class="badge badge-done">Active</span></div>'
+          +'<button class="btn btn-danger btn-xs" data-block="'+p.id+'">Block</button></div>';
+      });
+    }
+  }
+
+  // ── STAFF ──
+  else if(adminTab==='staff'){
+    let {data:adminStaff,error:staffErr}=await db.from('staff').select('id,name,role,active,weekoff_allowance').eq('active',true).order('name');
+    if(staffErr&&staffErr.message&&staffErr.message.includes('weekoff_allowance')){
+      const res=await db.from('staff').select('id,name,role,active').eq('active',true).order('name');
+      adminStaff=(res.data||[]).map(s=>({...s,weekoff_allowance:null}));
+    }
+    if(adminStaff)staff=adminStaff;
+    h+='<div class="section-header"><span class="section-title">Staff ('+staff.length+')</span><button class="btn btn-primary btn-sm" id="open-add-staff">+ Add</button></div>';
+    if(!staff.length){
+      h+='<div class="empty" style="padding:24px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:6px 0">No staff added yet.</div></div>';
+    } else {
+      const wkOpts=['none','1_per_month','1_per_2weeks','1_per_week'];
+      const wkLabels={'none':'No day off','1_per_month':'1/month','1_per_2weeks':'1/2 weeks','1_per_week':'1/week'};
+      h+=staff.map(s=>{
+        const roleTag=s.role?('<div class="staff-role-tag">'+esc(s.role)+'</div>'):'';
+        const curWk=s.weekoff_allowance||'1_per_week';
+        const wkSelect='<select class="staff-weekoff-sel" data-sid="'+s.id+'" style="font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:var(--font);margin-top:3px;cursor:pointer">'
+          +wkOpts.map(o=>'<option value="'+o+'"'+(curWk===o?' selected':'')+'>'+wkLabels[o]+'</option>').join('')+'</select>';
+        return '<div class="staff-row" style="flex-wrap:wrap;gap:8px">'
+          +'<div class="staff-avatar">'+((s.name||'?')[0].toUpperCase())+'</div>'
+          +'<div style="flex:1;min-width:120px"><div class="staff-name">'+esc(s.name)+'</div>'+roleTag
+          +'<div style="display:flex;align-items:center;gap:6px;margin-top:4px"><span style="font-size:10px;color:var(--text3);font-weight:600">DAY OFF:</span>'+wkSelect+'</div></div>'
+          +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button></div>';
+      }).join('');
+    }
+  }
+
+  // ── REVIEWS ──
+  else if(adminTab==='reviews'){
+    h+=await renderAdminReviews();
+  }
+
+  // ── POLICY ──
+  else if(adminTab==='policy'){
+    const {data:settingsRow}=await db.from('settings').select('value').eq('key','attendance_policy').maybeSingle();
+    let policy={weekoff:'1_per_week',weekend_penalty:true};
+    if(settingsRow?.value){try{policy=typeof settingsRow.value==='string'?JSON.parse(settingsRow.value):settingsRow.value;}catch(e){}}
+    h+='<div class="section-header"><span class="section-title">Attendance Policy</span></div>'
+      +'<div class="card">'
+      +'<div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5">Weekly day-off allowance is set per staff member in the Staff tab.</div>'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
+      +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">'
+      +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2-day penalty</div>'
+      +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat or Sun counts as 2 days off instead of 1</div></div></div>'
+      +'<button class="btn btn-primary btn-sm" id="save-att-policy-btn">Save Policy</button></div>';
+  }
+
+  // Set page content
+  el.innerHTML=h;
+
+  // ── WIRE ALL BUTTONS ──
+  el.querySelectorAll('.admin-sub-tab').forEach(t=>t.addEventListener('click',()=>switchAdminTab(t.dataset.sub)));
   el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
-  // Sub-tab buttons
-  el.querySelectorAll('.admin-sub-tab').forEach(t=>{
-    t.addEventListener('click',()=>switchAdminTab(t.dataset.sub));
-  });
-  // Re-rate buttons in reviews tab
-  el.querySelectorAll('[data-rerate]').forEach(b=>{
-    b.addEventListener('click',()=>{
-      openRateModal(b.getAttribute('data-rerate'),b.getAttribute('data-name'),b.getAttribute('data-date'),parseInt(b.getAttribute('data-rating')),b.getAttribute('data-comment'));
-    });
-  });
-  el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? They will also be blocked in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
-  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove this staff member?'))return;const sid=b.getAttribute('data-rmstaff');b.disabled=true;const {error}=await db.from('staff').update({active:false}).eq('id',sid);if(error){toast(error.message,'error');b.disabled=false;return;}toast('Staff removed','info');staff=staff.filter(x=>x.id!==sid);await renderAdmin();});});
+  el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? This also blocks them in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
+  el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove this staff member?'))return;const sid=b.getAttribute('data-rmstaff');b.disabled=true;const{error}=await db.from('staff').update({active:false}).eq('id',sid);if(error){toast(error.message,'error');b.disabled=false;return;}toast('Staff removed','info');staff=staff.filter(x=>x.id!==sid);await renderAdmin();});});
+  el.querySelectorAll('.staff-weekoff-sel').forEach(sel=>{sel.addEventListener('change',async()=>{const sid=sel.dataset.sid;const val=sel.value;sel.disabled=true;const{error}=await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);sel.disabled=false;if(error){toast('Failed: '+error.message,'error');renderAdmin();return;}const s=staff.find(x=>x.id===sid);if(s)s.weekoff_allowance=val;toast('Day off updated','success');});});
+  el.querySelectorAll('[data-rerate]').forEach(b=>{b.addEventListener('click',()=>{openRateModal(b.getAttribute('data-rerate'),b.getAttribute('data-name'),b.getAttribute('data-date'),parseInt(b.getAttribute('data-rating')),b.getAttribute('data-comment'));});});
   const oasBtn=document.getElementById('open-add-staff');
   if(oasBtn)oasBtn.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
-
-  // Attendance policy
-  } else if(adminTab==='policy'){
-  const {data:settingsRow}=await db.from('settings').select('value').eq('key','attendance_policy').maybeSingle();
-  let policy={weekoff:'1_per_week',weekend_penalty:true};
-  if(settingsRow?.value){try{policy=typeof settingsRow.value==='string'?JSON.parse(settingsRow.value):settingsRow.value;}catch(e){}}
-  const policyHtml='<div class="section-header" style="margin-top:16px"><span class="section-title">Attendance Policy</span></div>'
-    +'<div class="card">'
-    +'<div style="font-size:12px;color:var(--text3);margin-bottom:12px;line-height:1.5;padding:2px 0">Weekly day-off allowance is configured per staff member in the list above.</div>'
-    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:12px;background:var(--surface2);border-radius:var(--radius-sm);border:1px solid var(--border)">'
-    +'<input type="checkbox" id="weekend-penalty"'+(policy.weekend_penalty?' checked':'')+' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">'
-    +'<div><div style="font-size:13px;font-weight:600">Weekend absence = 2-day penalty</div>'
-    +'<div style="font-size:11px;color:var(--text3);margin-top:2px">Absent on Sat or Sun counts as 2 days off instead of 1</div></div>'
-    +'</div>'
-    +'<button class="btn btn-primary btn-sm" id="save-att-policy-btn">Save Policy</button>'
-    +'</div>';
-  h+=policyHtml;
-  } else if(adminTab==='reviews'){
-  h+=await renderAdminReviews();
-  }
-
   const savePolicyBtn=document.getElementById('save-att-policy-btn');
-  if(savePolicyBtn){
-    savePolicyBtn.addEventListener('click',async()=>{
-      const weekend_penalty=document.getElementById('weekend-penalty').checked;
-      const newPolicy={weekoff:attPolicy.weekoff||'1_per_week',weekend_penalty};
-      await db.from('settings').upsert({key:'attendance_policy',value:JSON.stringify(newPolicy)},{onConflict:'key'});
-      attPolicy=newPolicy;
-      toast('Attendance policy saved!','success');
-    });
-  }
+  if(savePolicyBtn){savePolicyBtn.addEventListener('click',async()=>{const weekend_penalty=document.getElementById('weekend-penalty').checked;const newPolicy={weekoff:attPolicy.weekoff||'1_per_week',weekend_penalty};await db.from('settings').upsert({key:'attendance_policy',value:JSON.stringify(newPolicy)},{onConflict:'key'});attPolicy=newPolicy;toast('Policy saved!','success');});};
 }
 
 // ========================
