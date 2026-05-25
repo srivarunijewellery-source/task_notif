@@ -86,8 +86,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 .stat-value{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-1px}
 .stat-value.green{color:var(--accent)} .stat-value.gold{color:var(--gold)} .stat-value.red{color:var(--red)} .stat-value.accent{color:var(--purple)}
 .stat-sub{font-size:11px;color:var(--text3);margin-top:3px;font-weight:500}
-.task-item{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:9px;box-shadow:var(--shadow)}
-.task-item.completed{border-color:rgba(59,186,156,0.25);background:var(--accent-light)}
+.task-item{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);padding:13px;margin-bottom:10px;box-shadow:var(--shadow)}
+.task-item.completed{border-color:rgba(59,186,156,0.3);background:var(--surface);border-left:3px solid var(--accent)!important;}
 .task-item.carried{border-color:rgba(212,160,23,0.3);background:var(--gold-light)}
 .task-top{display:flex;align-items:flex-start;gap:11px}
 .task-check{width:23px;height:23px;border-radius:7px;border:2px solid var(--border2);background:var(--surface2);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.15s}
@@ -353,8 +353,21 @@ let taskCategories=[];
 function dbg(){}
 
 function fmt(d){return d.toISOString().split('T')[0];}
+function istToday(){
+  // Always returns today's date in IST (Asia/Kolkata, UTC+5:30)
+  const now=new Date();
+  const istOffset=5.5*60*60*1000; // 5h30m in ms
+  const ist=new Date(now.getTime()+istOffset);
+  return ist.toISOString().split('T')[0];
+}
+function fmtIST(d){
+  // Format any Date object as YYYY-MM-DD in IST
+  const istOffset=5.5*60*60*1000;
+  const ist=new Date(d.getTime()+istOffset);
+  return ist.toISOString().split('T')[0];
+}
 function fmtDisp(s){
-  const today=fmt(new Date()),yest=fmt(new Date(Date.now()-86400000));
+  const today=istToday(),yest=fmt(new Date(Date.now()-86400000));
   const d=new Date(s+'T00:00:00');
   const dayStr=d.toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'});
   if(s===today)return'Today · '+dayStr;
@@ -517,7 +530,7 @@ function switchTab(name){
 function toggleProfileMenu(){document.getElementById('profile-menu').classList.toggle('open');}
 
 async function carryForward(){
-  const today=fmt(new Date());
+  const today=istToday();
   const {data}=await db.from('tasks').select('id,title').eq('task_type','onetime').eq('status','pending').eq('carried_forward',false).lt('scheduled_date',today);
   if(!data||!data.length)return;
   for(const t of data)await db.from('tasks').update({carried_forward:true,scheduled_date:today}).eq('id',t.id);
@@ -579,7 +592,7 @@ async function renderDashboard(){
   const el=document.getElementById('page-dashboard');
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const isAdmin=currentProfile.role==='admin';
-  const today=fmt(new Date());
+  const today=istToday();
   const {data:allTasks}=await db.from('tasks').select('*,task_completions(*)');
   let todayTasks=(allTasks||[]).filter(t=>taskShowsOnDate(t,today));
   if(!isAdmin)todayTasks=todayTasks.filter(t=>t.assigned_to===currentUser.id);
@@ -701,9 +714,7 @@ function taskCard(t,isDone,comp,ds){
   const canEdit=isAdmin||(t.created_by===currentUser.id);
   const canDelete=isAdmin;
   // IST today check - block backdating recurring tasks for managers
-  const istNowTC=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-  const istTodayTC=istNowTC.getFullYear()+'-'+String(istNowTC.getMonth()+1).padStart(2,'0')+'-'+String(istNowTC.getDate()).padStart(2,'0');
-  const isToday=ds===istTodayTC;
+  const isToday=ds===istToday();
   const canMarkComplete=isAdmin||isToday||t.task_type!=='recurring';
   if(!isDone&&isOwn){
     h+='<div class="task-actions">';
@@ -808,12 +819,10 @@ async function submitComplete(){
   setBtnLoading('complete-submit-btn',true);
   const note=document.getElementById('complete-note').value.trim();
   // IST date check - recurring tasks can only be completed today
-  const istNow=new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'}));
-  const istToday=istNow.getFullYear()+'-'+String(istNow.getMonth()+1).padStart(2,'0')+'-'+String(istNow.getDate()).padStart(2,'0');
   const ds=fmt(taskDate);
-  // Fetch task type to validate
+  // Fetch task type to validate — use IST for recurring task guard
   const {data:taskCheck}=await db.from('tasks').select('task_type').eq('id',completingTaskId).single();
-  if(taskCheck?.task_type==='recurring'&&ds!==istToday&&currentProfile.role!=='admin'){
+  if(taskCheck?.task_type==='recurring'&&ds!==istToday()&&currentProfile.role!=='admin'){
     toast('Recurring tasks can only be marked complete for today','error');
     setBtnLoading('complete-submit-btn',false);
     return;
@@ -1022,23 +1031,38 @@ async function loadAttList(){
   }
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const ds=fmt(attDate);
+  // IST today check — managers can only mark attendance for today
+  const todayIST=istToday();
+  const isFuture=ds>todayIST;
+  const isPast=ds<todayIST;
+  const isAdmin=currentProfile.role==='admin';
+  // Managers: only today. Admin: any day except future.
+  const canEdit=isAdmin?!isFuture:(ds===todayIST);
   const {data:rec}=await db.from('attendance').select('*').eq('date',ds);
   const am={};(rec||[]).forEach(r=>am[r.staff_id]=r.status);
-  const canEdit=true;
   const P=Object.values(am).filter(s=>s==='P').length,A=Object.values(am).filter(s=>s==='A').length,H=Object.values(am).filter(s=>s==='H').length;
-  let h='<div style="margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">Mark All Present</button></div>';
+  // Banner for locked dates
+  let h='';
+  if(isFuture){
+    h+='<div style="padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;color:var(--text3);font-weight:500;margin-bottom:12px;text-align:center">Cannot mark attendance for future dates</div>';
+  } else if(isPast&&!isAdmin){
+    h+='<div style="padding:10px 14px;background:var(--gold-light);border:1px solid rgba(232,160,32,0.25);border-radius:var(--radius-sm);font-size:13px;color:var(--gold);font-weight:500;margin-bottom:12px;text-align:center">Viewing past attendance — edit not allowed</div>';
+  }
+  if(canEdit)h+='<div style="margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">Mark All Present</button></div>';
   h+=staff.map(s=>{
     const st=am[s.id]||null;
     const av=st==='P'?'background:var(--accent-light);color:var(--accent)':st==='A'?'background:var(--red-light);color:var(--red)':st==='H'?'background:var(--gold-light);color:var(--gold)':'';
-    return`<div class="staff-row">
-      <div class="staff-avatar" style="${av}">${(s.name||'?')[0].toUpperCase()}</div>
-      <div style="flex:1;min-width:0"><div class="staff-name">${esc(s.name)}</div>${s.role?`<div class="staff-role-tag">${esc(s.role)}</div>`:''}</div>
-      <div class="attendance-toggle">
-        <button class="att-btn ${st==='P'?'active-present':''}" data-att="${s.id}|P|${ds}">P</button>
-        <button class="att-btn ${st==='A'?'active-absent':''}" data-att="${s.id}|A|${ds}">A</button>
-        <button class="att-btn ${st==='H'?'active-halfday':''}" data-att="${s.id}|H|${ds}">½</button>
-      </div>
-    </div>`;
+    return'<div class="staff-row">'
+      +'<div class="staff-avatar" style="'+av+'">'+((s.name||'?')[0].toUpperCase())+'</div>'
+      +'<div style="flex:1;min-width:0"><div class="staff-name">'+esc(s.name)+'</div>'+(s.role?'<div class="staff-role-tag">'+esc(s.role)+'</div>':'')+'</div>'
+      +(canEdit
+        ?'<div class="attendance-toggle">'
+          +'<button class="att-btn '+( st==='P'?'active-present':'')+'" data-att="'+s.id+'|P|'+ds+'">P</button>'
+          +'<button class="att-btn '+( st==='A'?'active-absent':'')+'" data-att="'+s.id+'|A|'+ds+'">A</button>'
+          +'<button class="att-btn '+( st==='H'?'active-halfday':'')+'" data-att="'+s.id+'|H|'+ds+'">½</button>'
+          +'</div>'
+        :'<span class="badge '+( st==='P'?'badge-done':st==='A'?'badge-urgent':st==='H'?'badge-carried':'badge-pending')+'">'+( st||'—')+'</span>')
+      +'</div>';
   }).join('');
   h+=`<div class="card" style="margin-top:14px"><div class="card-header"><span class="card-title">Summary — ${fmtDisp(ds)}</span></div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">
@@ -1051,13 +1075,13 @@ async function loadAttList(){
   el.innerHTML=h;
   document.getElementById('mark-all-btn').addEventListener('click',async()=>{
     await db.from('attendance').upsert(staff.map(s=>({staff_id:s.id,date:ds,status:'P',marked_by:currentUser.id})),{onConflict:'staff_id,date'});
-    toast('All marked present!','success');loadAttList();if(ds===fmt(new Date()))renderDashboard();
+    toast('All marked present!','success');loadAttList();if(ds===istToday())renderDashboard();
   });
   el.querySelectorAll('[data-att]').forEach(btn=>{
     btn.addEventListener('click',async()=>{
       const [sid,status,date]=btn.getAttribute('data-att').split('|');
       await db.from('attendance').upsert({staff_id:sid,date,status,marked_by:currentUser.id},{onConflict:'staff_id,date'});
-      loadAttList();if(date===fmt(new Date()))renderDashboard();
+      loadAttList();if(date===istToday())renderDashboard();
     });
   });
 }
@@ -1712,7 +1736,7 @@ async function loadMgrReviewBody(){
   });
   // Count recurring tasks that should have appeared (each weekday/day) but weren't completed
   // Simplified: count distinct days where recurring tasks weren't completed
-  const today=fmt(new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Kolkata'})));
+  const today=istToday();
   const daysInPeriod=[];
   for(let d=new Date(sd+'T00:00:00');fmt(d)<=es&&fmt(d)<=today;d.setDate(d.getDate()+1)){
     daysInPeriod.push(fmt(new Date(d)));
@@ -2016,7 +2040,7 @@ function renderCalGrid(){
   const dim=new Date(calYear,calMonth+1,0).getDate();
   const firstDay=new Date(calYear,calMonth,1).getDay(); // 0=Sun
   const isAdmin=currentProfile.role==='admin';
-  const today=fmt(new Date());
+  const today=istToday();
 
   // Day headers
   const dayNames=['Su','Mo','Tu','We','Th','Fr','Sa'];
