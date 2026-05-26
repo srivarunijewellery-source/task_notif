@@ -640,8 +640,6 @@ function renderTasks(){
   document.getElementById('tn').addEventListener('click',()=>{taskDate=new Date(+taskDate+86400000);updTDL();loadTasksList();});
   document.getElementById('tt').addEventListener('click',()=>{taskDate=new Date(Date.now()+5.5*60*60*1000);updTDL();loadTasksList();});
   const tasksAddBtn=document.getElementById('tasks-add-btn');if(tasksAddBtn)tasksAddBtn.addEventListener('click',()=>openAddTask());
-  // Wire ONE persistent click listener on page-tasks (survives tasks-list rebuilds)
-  wireCards(el, fmt(taskDate));
   updTDL();loadTasksList();
 }
 function updTDL(){const e=document.getElementById('tdl');if(e)e.textContent=fmtDisp(fmt(taskDate));}
@@ -669,8 +667,8 @@ async function loadTasksList(){
   if(pending.length){h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Done ('+done.length+')</span></div>';done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
   el.innerHTML=h;
+  wireCards(el,ds);
   _loadingTasks=false;
-  // No wireCards here — listener is on page-tasks (persistent parent)
 }
 
 function taskCard(t,isDone,comp,ds){
