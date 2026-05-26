@@ -232,7 +232,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     <div class="tab" data-tab="tasks"><span class="tab-icon" style="font-size:17px">⊟</span>Tasks</div>
     <div class="tab" data-tab="attendance"><span class="tab-icon" style="font-size:17px">⊕</span>Attend.</div>
     <div class="tab" data-tab="summary"><span class="tab-icon" style="font-size:17px">⊞</span>Summary</div>
-    <div class="tab" data-tab="reviews-mgr"><span class="tab-icon" style="font-size:17px">◈</span>Reviews</div>
+    <div class="tab" data-tab="reviews-mgr" id="reviews-mgr-tab"><span class="tab-icon" style="font-size:17px">◈</span>Reviews</div>
     <div class="tab" data-tab="admin" id="admin-tab" style="display:none"><span class="tab-icon" style="font-size:17px">⊛</span>Admin</div>
   </div>
 </div>
@@ -504,7 +504,10 @@ async function initApp(user){
   document.getElementById('avatar-btn').textContent=(p.name||'U')[0].toUpperCase();
   document.getElementById('pm-name').textContent=p.name||'—';
   document.getElementById('pm-email').textContent=p.email||'—';
-  if(p.role==='admin')document.getElementById('admin-tab').style.display='';
+  if(p.role==='admin'){
+    document.getElementById('admin-tab').style.display='';
+    document.getElementById('reviews-mgr-tab').style.display='none';
+  }
   await loadStaff();
   await loadManagers();
   await loadAttPolicy();
