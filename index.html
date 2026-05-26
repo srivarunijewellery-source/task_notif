@@ -759,7 +759,7 @@ function taskCard(t,isDone,comp,ds){
   // ── Assemble full card ──
   return ''
     +'<div class="task-item '+cls+'" id="ti-'+t.id+'">'
-      +'<div class="task-top" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent" onclick="toggleTaskDetail(this,event)" data-id="'+t.id+'">'
+      +'<div class="task-top" data-expand-id="'+t.id+'" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent">'
         +prDot
         +'<div class="task-body" style="padding-left:8px">'
           +'<div class="task-title'+(isDone?' done':'')+'">' +esc(t.title)+'</div>'
@@ -815,10 +815,28 @@ function toggleTaskDetail(header,ev){
   if(a)a.textContent=open?'▾':'▴';
 }
 function wireCards(container,ds){
-  // Remove previous listener before attaching — prevents stacking on re-renders
+  // Remove previous listeners
   if(container._wireHandler)container.removeEventListener('click',container._wireHandler);
+  if(container._expandHandler)container.removeEventListener('pointerdown',container._expandHandler);
+
+  // Expand uses pointerdown — fires exactly ONCE per physical tap (no ghost click)
+  container._expandHandler=function(e){
+    const header=e.target.closest('[data-expand-id]');
+    if(header&&!e.target.closest('button')&&!e.target.closest('[data-oc]')){
+      e.preventDefault();
+      const id=header.getAttribute('data-expand-id');
+      const d=document.getElementById('td-'+id);
+      if(d){
+        const open=d.style.display==='block';
+        d.style.display=open?'none':'block';
+        const a=header.querySelector('.task-expand-arrow');
+        if(a)a.textContent=open?'▾':'▴';
+      }
+    }
+  };
+  container.addEventListener('pointerdown',container._expandHandler);
+
   container._wireHandler=async function(e){
-    // Expand is handled by inline onclick on task-top
     const ocEl=e.target.closest('[data-oc]');
     if(ocEl){const [id,title]=ocEl.getAttribute('data-oc').split('|');openComplete(id,title);return;}
     const delEl=e.target.closest('[data-del]');
