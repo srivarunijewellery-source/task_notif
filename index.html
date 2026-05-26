@@ -1883,7 +1883,8 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
       // If scheduled_date is set, task starts from that date — not missed until then
       // If scheduled_date is null/before month start — task was active all month
       const startDate=t.scheduled_date||sd;
-      if(startDate<=today)incomplete++;
+      // Only missed if start date is strictly before today (at least one past day with no completion)
+      if(startDate<today)incomplete++;
     }
   });
 
