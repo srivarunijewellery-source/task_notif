@@ -664,7 +664,13 @@ async function loadTasksList(){
   let h='';
   if(pending.length){h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Done ('+done.length+')</span></div>';done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
+  console.log('[TASKS] Setting innerHTML, tasks-list id='+el.id+' attached='+document.body.contains(el)+' cards='+h.match(/data-id=/g)?.length);
   el.innerHTML=h;
+  // Verify cards rendered
+  var cards=el.querySelectorAll('[data-id]');
+  console.log('[TASKS] Cards in DOM after render:',Array.from(cards).map(c=>c.dataset.id));
+  var details=el.querySelectorAll('[id^="td-"]');
+  console.log('[TASKS] Details in DOM after render:',Array.from(details).map(d=>d.id));
   // No wireCards here — listener is on page-tasks (persistent parent)
 }
 
@@ -799,9 +805,16 @@ function taskShowsOnDate(t,dateStr){
 function toggleTaskDetail(header){
   var id=header.dataset.id;
   var d=document.getElementById('td-'+id);
-  if(!d)return;
+  console.log('[EXPAND] id='+id+' found='+!!d+' display='+(d?d.style.display:'N/A')+' header='+header.outerHTML.substring(0,80));
+  if(!d){
+    // List ALL td-* elements in DOM
+    var all=document.querySelectorAll('[id^="td-"]');
+    console.log('[EXPAND] All td-* in DOM:',Array.from(all).map(x=>x.id));
+    return;
+  }
   var open=d.style.display==='block';
   d.style.display=open?'none':'block';
+  console.log('[EXPAND] toggled to '+(open?'none':'block'));
   var a=header.querySelector('.task-expand-arrow');
   if(a)a.textContent=open?'▾':'▴';
 }
