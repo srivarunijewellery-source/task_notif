@@ -1874,11 +1874,16 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   const allCompIds=new Set((allComps||[]).map(c=>c.task_id)); // all completions this month
   const today=istToday();
   (myAllTasks||[]).forEach(t=>{
-    if(allCompIds.has(t.id))return;
+    if(allCompIds.has(t.id))return; // completed at least once this month — not missed
     if(t.task_type==='onetime'){
+      // One-time: missed if scheduled this month and due date already passed
       if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today)incomplete++;
     } else {
-      if(sd<=today)incomplete++;
+      // Recurring: only missed if start date has already been reached this month
+      // If scheduled_date is set, task starts from that date — not missed until then
+      // If scheduled_date is null/before month start — task was active all month
+      const startDate=t.scheduled_date||sd;
+      if(startDate<=today)incomplete++;
     }
   });
 
