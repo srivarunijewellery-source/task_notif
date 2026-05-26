@@ -645,32 +645,31 @@ function renderTasks(){
   updTDL();loadTasksList();
 }
 function updTDL(){const e=document.getElementById('tdl');if(e)e.textContent=fmtDisp(fmt(taskDate));}
+let _loadingTasks=false;
 async function loadTasksList(){
+  // Prevent concurrent calls overwriting each other
+  if(_loadingTasks)return;
+  _loadingTasks=true;
   // Snapshot the date before async fetch — user may navigate while fetching
   const ds=fmt(taskDate),isAdmin=currentProfile.role==='admin';
   let el=document.getElementById('tasks-list');
-  if(!el)return;
+  if(!el){_loadingTasks=false;return;}
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   const {data}=await db.from('tasks').select('*,task_completions(*),profiles:assigned_to(name,id)').order('priority',{ascending:false});
   // Re-fetch el after async — renderTasks() may have replaced tasks-list while we waited
   el=document.getElementById('tasks-list');
-  if(!el)return;
+  if(!el){_loadingTasks=false;return;}
   // Also verify the date hasn't changed while we were fetching
-  if(fmt(taskDate)!==ds){loadTasksList();return;}
+  if(fmt(taskDate)!==ds){_loadingTasks=false;loadTasksList();return;}
   const tasks=(data||[]).filter(t=>taskShowsOnDate(t,ds)).filter(t=>isAdmin||t.assigned_to===currentUser.id||t.created_by===currentUser.id);
   const pending=tasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===ds));
   const done=tasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===ds));
-  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">—</div><div class="empty-text">No tasks for this day.</div></div>';return;}
+  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">—</div><div class="empty-text">No tasks for this day.</div></div>';_loadingTasks=false;return;}
   let h='';
   if(pending.length){h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Done ('+done.length+')</span></div>';done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
-  console.log('[TASKS] Setting innerHTML, tasks-list id='+el.id+' attached='+document.body.contains(el)+' cards='+h.match(/data-id=/g)?.length);
   el.innerHTML=h;
-  // Verify cards rendered
-  var cards=el.querySelectorAll('[data-id]');
-  console.log('[TASKS] Cards in DOM after render:',Array.from(cards).map(c=>c.dataset.id));
-  var details=el.querySelectorAll('[id^="td-"]');
-  console.log('[TASKS] Details in DOM after render:',Array.from(details).map(d=>d.id));
+  _loadingTasks=false;
   // No wireCards here — listener is on page-tasks (persistent parent)
 }
 
@@ -762,7 +761,7 @@ function taskCard(t,isDone,comp,ds){
   // ── Assemble full card ──
   return ''
     +'<div class="task-item '+cls+'" id="ti-'+t.id+'">'
-      +'<div class="task-top" style="cursor:pointer;user-select:none" onclick="toggleTaskDetail(this)" data-id="'+t.id+'">'
+      +'<div class="task-top" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent" onclick="toggleTaskDetail(this,event)" data-id="'+t.id+'">'
         +prDot
         +'<div class="task-body" style="padding-left:8px">'
           +'<div class="task-title'+(isDone?' done':'')+'">' +esc(t.title)+'</div>'
@@ -802,19 +801,18 @@ function taskShowsOnDate(t,dateStr){
   return true; // fallback: always show
 }
 
-function toggleTaskDetail(header){
+var _lastToggleTime=0;
+function toggleTaskDetail(header,ev){
+  // Prevent double-fire from touch+click on mobile
+  if(ev){ev.preventDefault();ev.stopPropagation();}
+  var now=Date.now();
+  if(now-_lastToggleTime<300)return; // debounce 300ms
+  _lastToggleTime=now;
   var id=header.dataset.id;
   var d=document.getElementById('td-'+id);
-  console.log('[EXPAND] id='+id+' found='+!!d+' display='+(d?d.style.display:'N/A')+' header='+header.outerHTML.substring(0,80));
-  if(!d){
-    // List ALL td-* elements in DOM
-    var all=document.querySelectorAll('[id^="td-"]');
-    console.log('[EXPAND] All td-* in DOM:',Array.from(all).map(x=>x.id));
-    return;
-  }
+  if(!d)return;
   var open=d.style.display==='block';
   d.style.display=open?'none':'block';
-  console.log('[EXPAND] toggled to '+(open?'none':'block'));
   var a=header.querySelector('.task-expand-arrow');
   if(a)a.textContent=open?'▾':'▴';
 }
