@@ -298,6 +298,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
         <button type="button" class="day-chip" data-day="Sun">Sun</button>
       </div>
     </div>
+    <div class="field" id="recur-start-field" style="display:none">
+      <label>Start date</label>
+      <input type="date" id="recur-start-date">
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">Task will appear from this date onwards</div>
+    </div>
     <div class="field"><label>Priority</label>
       <select id="new-task-priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
     </div>
@@ -708,13 +713,14 @@ function taskCard(t,isDone,comp,ds){
 
   // ── IST check for recurring completion lock ──
   const isToday=ds===istToday();
+  // Admin can mark complete any task on any date; managers only today for recurring
   const canMarkComplete=isAdmin||isToday||t.task_type!=='recurring';
   const canEdit=isAdmin||(t.created_by===currentUser.id);
   const canDelete=isAdmin;
 
   // ── Action buttons ──
   let actions='';
-  if(!isDone&&isOwn){
+  if(!isDone&&(isOwn||isAdmin)){
     actions+='<div class="task-actions">';
     if(canMarkComplete){
       actions+='<button class="btn btn-success btn-sm" data-oc="'+t.id+'|'+esc(t.title)+'" style="flex:1">Mark Complete</button>';
@@ -788,7 +794,9 @@ function taskCard(t,isDone,comp,ds){
 const DAY_NAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function taskShowsOnDate(t,dateStr){
   if(t.task_type==='onetime')return t.scheduled_date===dateStr;
-  // recurring — check subtype
+  // recurring — respect start date if set
+  if(t.scheduled_date&&dateStr<t.scheduled_date)return false;
+  // check subtype
   const sub=t.recur_subtype||'recurring_daily';
   if(sub==='recurring_daily')return true;
   const dow=new Date(dateStr+'T00:00:00').getDay(); // 0=Sun
@@ -878,8 +886,7 @@ async function submitComplete(){
   const note=document.getElementById('complete-note').value.trim();
   // IST date check - recurring tasks can only be completed today
   const ds=fmt(taskDate);
-  // Fetch task type to validate — use IST for recurring task guard
-  const {data:taskCheck}=await db.from('tasks').select('task_type').eq('id',completingTaskId).single();
+  const {data:taskCheck}=await db.from('tasks').select('task_type,assigned_to').eq('id',completingTaskId).single();
   if(taskCheck?.task_type==='recurring'&&ds!==istToday()&&currentProfile.role!=='admin'){
     toast('Recurring tasks can only be marked complete for today','error');
     setBtnLoading('complete-submit-btn',false);
@@ -914,7 +921,14 @@ async function viewComp(id){
   // Manager note
   if(c.note)h+='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:13px;margin-bottom:10px;line-height:1.5"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:5px">Manager Note</div>'+esc(c.note)+'</div>';
   // Photo
-  if(c.photo_url){const pu=c.photo_url;h+='<img src="'+pu+'" style="width:100%;border-radius:9px;cursor:pointer;margin-bottom:10px" onclick="window.open(this.src)">';}
+  if(c.photo_url){
+    h+='<div style="margin-bottom:10px;text-align:center">';
+    h+='<a href="'+c.photo_url+'" target="_blank" rel="noopener">';
+    h+='<img src="'+c.photo_url+'" style="max-width:100%;border-radius:9px;display:block">';
+    h+='</a>';
+    h+='<div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px">📷 Tap to open full photo</div>';
+    h+='</div>';
+  }
   if(!c.note&&!c.photo_url)h+='<div style="color:var(--text3);text-align:center;padding:16px 0;font-size:13px">No notes or photo attached.</div>';
   // Rating section
   if(c.rating){
@@ -966,6 +980,10 @@ function openAddTask(task){
   document.getElementById('new-task-priority').value=isEdit?task.priority:'normal';
   document.getElementById('new-task-date-field').style.display=taskTypeVal==='onetime'?'':'none';
   document.getElementById('recur-days-field').style.display=taskTypeVal==='recurring_weekly'?'':'none';
+  document.getElementById('recur-start-field').style.display=taskTypeVal!=='onetime'?'':'none';
+  // Populate start date for edit mode
+  const recurStartEl=document.getElementById('recur-start-date');
+  if(recurStartEl)recurStartEl.value=isEdit&&task.scheduled_date?task.scheduled_date:istToday();
   // Restore day chip selections for edit mode
   document.querySelectorAll('.day-chip').forEach(c=>c.classList.remove('active'));
   if(isEdit&&task.recur_days){
@@ -1014,8 +1032,9 @@ async function submitNewTask(){
   // Normalise task_type — store all recurring variants as 'recurring' in DB, with recur_days differentiating
   const dbType=type==='onetime'?'onetime':'recurring';
   setBtnLoading('add-task-submit-btn',true);
+  const recurStartDate=document.getElementById('recur-start-date')?.value||null;
   const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:dbType,recur_subtype:type,recur_days:recurDays?JSON.stringify(recurDays):null,
-    scheduled_date:type==='onetime'?date:null,priority,category_id:catId};
+    scheduled_date:type==='onetime'?date:(recurStartDate||null),priority,category_id:catId};
   let error;
   if(isEdit){
     ({error}=await db.from('tasks').update(payload).eq('id',editId));
@@ -2292,6 +2311,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     const v=this.value;
     document.getElementById('new-task-date-field').style.display=v==='onetime'?'':'none';
     document.getElementById('recur-days-field').style.display=v==='recurring_weekly'?'':'none';
+    document.getElementById('recur-start-field').style.display=v!=='onetime'?'':'none';
   });
   // Day chip toggle
   document.getElementById('recur-days-picker').addEventListener('click',e=>{
