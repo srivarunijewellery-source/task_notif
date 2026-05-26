@@ -796,18 +796,23 @@ function wireCards(container,ds){
   if(container._wiredCards)return;
   container._wiredCards=true;
   container.addEventListener('click',async function handler(e){
-    // Expand/collapse: click on task-top header
+    // Expand/collapse: click anywhere on task-top (but not action buttons)
     const expandHeader=e.target.closest('[data-task-expand]');
-    if(expandHeader&&!e.target.closest('button')){
-      const id=expandHeader.getAttribute('data-task-expand');
-      const detail=expandHeader.parentElement.querySelector('.task-detail');
-      if(detail){
-        const open=detail.style.display==='block';
-        detail.style.display=open?'none':'block';
-        const arrow=expandHeader.querySelector('.task-expand-arrow');
-        if(arrow)arrow.textContent=open?'▾':'▴';
+    if(expandHeader){
+      // Only block if clicking a real interactive button (not badge/span/div)
+      const clickedBtn=e.target.closest('button');
+      if(!clickedBtn){
+        const id=expandHeader.getAttribute('data-task-expand');
+        // Use getElementById for reliable lookup regardless of DOM structure
+        const detail=document.getElementById('td-'+id);
+        if(detail){
+          const open=detail.style.display==='block';
+          detail.style.display=open?'none':'block';
+          const arrow=expandHeader.querySelector('.task-expand-arrow');
+          if(arrow)arrow.textContent=open?'▾':'▴';
+        }
+        return;
       }
-      return;
     }
     // Mark complete
     const ocEl=e.target.closest('[data-oc]');
@@ -1801,12 +1806,15 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
     .gte('completed_date',sd).lte('completed_date',es)
     .order('completed_date',{ascending:false});
 
-  // Fetch tasks assigned this manager relevant to this month
-  // One-time: scheduled this month. Recurring: all active ones (they appear every day/week)
-  const {data:myAllTasks}=await db.from('tasks')
-    .select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
-    .eq('assigned_to',myId)
-    .or('task_type.eq.recurring,and(task_type.eq.onetime,scheduled_date.gte.'+sd+',scheduled_date.lte.'+es+')');
+  // Fetch tasks assigned to this manager relevant to this month
+  // Split into two queries to avoid complex filter syntax issues
+  const [{data:recurTasks},{data:onetimeTasks}]=await Promise.all([
+    db.from('tasks').select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
+      .eq('assigned_to',myId).eq('task_type','recurring'),
+    db.from('tasks').select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
+      .eq('assigned_to',myId).eq('task_type','onetime').gte('scheduled_date',sd).lte('scheduled_date',es)
+  ]);
+  const myAllTasks=[...(recurTasks||[]),...(onetimeTasks||[])];
 
   const allRated=(allComps||[]).filter(c=>c.rating!=null);
   const unrated=(allComps||[]).filter(c=>c.rating==null);
@@ -1825,7 +1833,7 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   });
   // Incomplete = assigned tasks that have NO completion at all this month
   // Use ALL completions (rated + unrated) to determine what was done
-  const allCompIds=new Set((allComps||[]).map(c=>c.task_id)) // all completions this month;
+  const allCompIds=new Set((allComps||[]).map(c=>c.task_id)); // all completions this month
   const today=istToday();
   (myAllTasks||[]).forEach(t=>{
     if(allCompIds.has(t.id))return; // has at least one completion this month — not missed
