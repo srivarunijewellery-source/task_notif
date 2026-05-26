@@ -625,7 +625,6 @@ async function renderDashboard(){
     h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${completed.length})</span></div>`;
     completed.slice(0,3).forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===today);h+=taskCard(t,true,c,today);});
   }
-  el._wiredCards=false;
   el.innerHTML=h;
   wireCards(el,today);
   const dashAddBtn=document.getElementById('dash-add-btn');if(dashAddBtn)dashAddBtn.addEventListener('click',()=>openAddTask());
@@ -658,7 +657,6 @@ async function loadTasksList(){
   let h='';
   if(pending.length){h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${done.length})</span></div>`;done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
-  el._wiredCards=false;
   el.innerHTML=h;
   wireCards(el,ds);
 }
@@ -792,59 +790,40 @@ function taskShowsOnDate(t,dateStr){
 }
 
 function wireCards(container,ds){
-  // Guard: only attach one listener per container element
-  if(container._wiredCards)return;
-  container._wiredCards=true;
-  container.addEventListener('click',async function handler(e){
-    // Expand/collapse: click anywhere on task-top (but not action buttons)
+  // Remove previous listener before attaching — prevents stacking on re-renders
+  if(container._wireHandler)container.removeEventListener('click',container._wireHandler);
+  container._wireHandler=async function(e){
     const expandHeader=e.target.closest('[data-task-expand]');
-    if(expandHeader){
-      const clickedBtn=e.target.closest('button');
-      if(!clickedBtn){
-        const id=expandHeader.getAttribute('data-task-expand');
-        const detail=document.getElementById('td-'+id);
-        console.log('EXPAND clicked id=',id,'detail=',detail,'target=',e.target.tagName,e.target.className);
-        if(detail){
-          const open=detail.style.display==='block';
-          detail.style.display=open?'none':'block';
-          const arrow=expandHeader.querySelector('.task-expand-arrow');
-          if(arrow)arrow.textContent=open?'▾':'▴';
-        } else {
-          console.error('EXPAND: detail element td-'+id+' NOT FOUND in DOM');
-          // Fallback: find by class near the header
-          const fallback=expandHeader.nextElementSibling;
-          console.log('fallback sibling=',fallback?.className);
-          if(fallback&&fallback.classList.contains('task-detail')){
-            const open=fallback.style.display==='block';
-            fallback.style.display=open?'none':'block';
-          }
-        }
-        return;
+    if(expandHeader&&!e.target.closest('button')){
+      const id=expandHeader.getAttribute('data-task-expand');
+      const detail=document.getElementById('td-'+id);
+      if(detail){
+        const open=detail.style.display==='block';
+        detail.style.display=open?'none':'block';
+        const arrow=expandHeader.querySelector('.task-expand-arrow');
+        if(arrow)arrow.textContent=open?'▾':'▴';
       }
+      return;
     }
-    // Mark complete
     const ocEl=e.target.closest('[data-oc]');
     if(ocEl){const [id,title]=ocEl.getAttribute('data-oc').split('|');openComplete(id,title);return;}
-    // Delete
     const delEl=e.target.closest('[data-del]');
     if(delEl){deleteTask(delEl.getAttribute('data-del'));return;}
-    // Edit
     const editEl=e.target.closest('[data-edit-task]');
     if(editEl){
       const id=editEl.getAttribute('data-edit-task');
       const {data:t}=await db.from('tasks').select('*').eq('id',id).single();
       if(t)openAddTask(t);return;
     }
-    // View completion
     const vcEl=e.target.closest('[data-vc]');
     if(vcEl){viewComp(vcEl.getAttribute('data-vc'));return;}
-    // Undo
     const undoEl=e.target.closest('[data-undo]');
     if(undoEl){
       await db.from('task_completions').delete().eq('id',undoEl.getAttribute('data-undo'));
       toast('Undone','info');loadTasksList();renderDashboard();return;
     }
-  });
+  };
+  container.addEventListener('click',container._wireHandler);
 }
 
 
@@ -1809,7 +1788,7 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   const now2=new Date(year,month+1,0); // same as ed
   // Fetch ALL completions this month (rated + unrated)
   const {data:allComps}=await db.from('task_completions')
-    .select('id,rating,admin_comment,completed_date,task_id,tasks(title,category_id,task_type,carried_forward,scheduled_date)')
+    .select('id,rating,admin_comment,completed_date,task_id,tasks(title,category_id,task_type,scheduled_date)')
     .eq('completed_by',myId)
     .gte('completed_date',sd).lte('completed_date',es)
     .order('completed_date',{ascending:false});
@@ -1817,9 +1796,9 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   // Fetch tasks assigned to this manager relevant to this month
   // Split into two queries to avoid complex filter syntax issues
   const [{data:recurTasks},{data:onetimeTasks}]=await Promise.all([
-    db.from('tasks').select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
+    db.from('tasks').select('id,title,task_type,scheduled_date,status')
       .eq('assigned_to',myId).eq('task_type','recurring'),
-    db.from('tasks').select('id,title,task_type,scheduled_date,carried_forward,recur_subtype,status')
+    db.from('tasks').select('id,title,task_type,scheduled_date,status')
       .eq('assigned_to',myId).eq('task_type','onetime').gte('scheduled_date',sd).lte('scheduled_date',es)
   ]);
   const myAllTasks=[...(recurTasks||[]),...(onetimeTasks||[])];
@@ -1836,25 +1815,23 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   // Incomplete: tasks assigned this month with zero completions this month
   let onTime=0, delayed=0, incomplete=0;
   (allComps||[]).forEach(c=>{
-    if(c.tasks?.carried_forward)delayed++;
+    // Delayed = completed on a later date than originally scheduled (one-time tasks only)
+    const sched=c.tasks?.scheduled_date;
+    if(c.tasks?.task_type==='onetime'&&sched&&c.completed_date>sched)delayed++;
     else onTime++;
   });
   // Incomplete = assigned tasks that have NO completion at all this month
   // Use ALL completions (rated + unrated) to determine what was done
   const allCompIds=new Set((allComps||[]).map(c=>c.task_id)); // all completions this month
   const today=istToday();
-  console.log('MISSED DEBUG: myAllTasks=',myAllTasks?.length,'allCompIds size=',allCompIds.size,'allComps=',allComps?.length,'recurTasks=',recurTasks?.length,'onetimeTasks=',onetimeTasks?.length);
   (myAllTasks||[]).forEach(t=>{
-    const done=allCompIds.has(t.id);
-    console.log('  task:',t.title,'type:',t.task_type,'done:',done,'id:',t.id);
-    if(done)return;
+    if(allCompIds.has(t.id))return;
     if(t.task_type==='onetime'){
-      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today){incomplete++;console.log('  -> MISSED (onetime)');}
+      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today)incomplete++;
     } else {
-      if(sd<=today){incomplete++;console.log('  -> MISSED (recurring)');}
+      if(sd<=today)incomplete++;
     }
   });
-  console.log('MISSED RESULT: onTime=',onTime,'delayed=',delayed,'incomplete=',incomplete);
 
   // Rating buckets
   const buckets={1:[],2:[],3:[],4:[],5:[]};
