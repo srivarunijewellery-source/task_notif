@@ -2119,13 +2119,53 @@ function renderMgrTaskList(allRated,buckets){
 // ========================
 const RATING_LABELS=['','Needs improvement','Below average','Average','Good','Excellent'];
 
-function openRateModal(compId, managerName, date, currentRating, currentComment){
+async function openRateModal(compId, managerName, date, currentRating, currentComment){
   document.getElementById('rate-comp-id').value=compId;
-  document.getElementById('rate-task-label').textContent=managerName+' · '+date;
-  document.getElementById('rate-comment').value=currentComment;
-  // Set stars
-  setStarRating(currentRating);
+  document.getElementById('rate-comment').value=currentComment||'';
+  setStarRating(currentRating||0);
+  // Show loading state while fetching details
+  const detailsEl=document.getElementById('rate-comp-details');
+  detailsEl.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
   openModal('rate-modal');
+  // Fetch full completion + task details
+  const {data:c}=await db.from('task_completions')
+    .select('*,profiles:completed_by(name),tasks(title,description,category_id)')
+    .eq('id',compId).single();
+  if(!c){detailsEl.innerHTML='';return;}
+  const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
+  let h='';
+  // Task info header
+  h+='<div style="background:var(--surface2);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px">'
+    +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px">Task</div>'
+    +'<div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">'+esc(c.tasks?.title||'—')+'</div>'
+    +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    +(cat?'<span class="badge" style="background:'+cat.color+';color:'+cat.text_color+'">'+esc(cat.name)+'</span>':'')
+    +'<span style="font-size:11px;color:var(--text3)">'+esc(c.profiles?.name||managerName)+' · '+c.completed_date+'</span>'
+    +'</div>'
+    +'</div>';
+  // Manager note
+  if(c.note){
+    h+='<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-bottom:10px">'
+      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:4px">Manager Note</div>'
+      +'<div style="font-size:13px;color:var(--text2);line-height:1.5">'+esc(c.note)+'</div>'
+      +'</div>';
+  }
+  // Photo
+  if(c.photo_url){
+    h+='<div style="margin-bottom:10px">'
+      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">Photo</div>'
+      +'<a href="'+c.photo_url+'" target="_blank" rel="noopener" style="display:block">'
+      +'<img src="'+c.photo_url+'" style="max-width:100%;border-radius:9px;display:block">'
+      +'</a>'
+      +'<div style="font-size:11px;color:var(--accent);font-weight:600;margin-top:4px">📷 Tap to open full photo</div>'
+      +'</div>';
+  }
+  if(!c.note&&!c.photo_url){
+    h+='<div style="font-size:12px;color:var(--text3);font-style:italic;margin-bottom:10px">No notes or photo attached.</div>';
+  }
+  // Divider
+  h+='<div style="border-top:1px solid var(--border);margin-bottom:14px"></div>';
+  detailsEl.innerHTML=h;
 }
 
 function setStarRating(val){
@@ -2443,7 +2483,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Rate Completion</div>
-    <div id="rate-task-label" style="font-size:13px;color:var(--text2);margin-bottom:16px;font-weight:500;line-height:1.4"></div>
+    <div id="rate-comp-details" style="margin-bottom:14px"></div>
     <input type="hidden" id="rate-comp-id">
     <div class="field">
       <label>Rating</label>
