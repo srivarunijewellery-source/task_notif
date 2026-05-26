@@ -1239,7 +1239,7 @@ async function loadSummary(year,month){
 
   // ── Fetch all data ──
   const [tasksRes,compsRes,attRes,catsRes,attDatedRes]=await Promise.all([
-    db.from('tasks').select('id,assigned_to,category_id,title'),
+    db.from('tasks').select('id,assigned_to,category_id,title,task_type,scheduled_date'),
     db.from('task_completions').select('task_id,completed_by,completed_date').gte('completed_date',sd).lte('completed_date',es),
     db.from('attendance').select('staff_id,status').gte('date',sd).lte('date',es),
     db.from('task_categories').select('id,name,color,text_color'),
@@ -1281,7 +1281,13 @@ async function loadSummary(year,month){
   } else {
     // ── MANAGER VIEW: only their own performance by category ──
     const myId=currentUser.id;
-    const myTasks=tasks.filter(t=>t.assigned_to===myId);
+    const today=istToday();
+    const myTasks=tasks.filter(t=>{
+      if(t.assigned_to!==myId)return false;
+      // Exclude recurring tasks whose start date is today or future
+      if(t.task_type==='recurring'&&t.scheduled_date&&t.scheduled_date>=today)return false;
+      return true;
+    });
     const myComps=comps.filter(c=>c.completed_by===myId);
     const doneTaskIds=new Set(myComps.map(c=>c.task_id));
 
@@ -1362,7 +1368,17 @@ async function loadSummary(year,month){
           catMap[key].totalRating+=r.rating;
           catMap[key].ratingCount++;
         }
-      } else catMap[key].missed.push(t.title);
+      } else {
+        // Only count as missed if task should have appeared by now
+        const startDate=t.scheduled_date||sd;
+        const today=istToday();
+        if(t.task_type!=='recurring'||(startDate<today)){
+          catMap[key].missed.push(t.title);
+        } else {
+          // Recurring task hasn't started yet — don't count as missed, reduce total
+          catMap[key].total--;
+        }
+      }
     });
 
     const catEntries=Object.values(catMap).sort((a,b)=>b.total-a.total);
