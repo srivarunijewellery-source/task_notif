@@ -634,13 +634,14 @@ async function renderDashboard(){
 // TASKS
 function initTaskDate(){taskDate=new Date(Date.now()+5.5*60*60*1000);renderTasks();}
 function renderTasks(){
-  const isAdmin=currentProfile.role==='admin';
   const el=document.getElementById('page-tasks');
   el.innerHTML='<div class="date-nav"><button class="date-nav-btn" id="tp">‹</button><span class="date-label" id="tdl">—</span><button class="date-today-btn" id="tt">Today</button><button class="date-nav-btn" id="tn">›</button></div><div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" id="tasks-add-btn">+ Add Task</button></div><div id="tasks-list"></div>';
-  document.getElementById('tp').addEventListener('click',()=>{taskDate=new Date(taskDate-86400000);updTDL();loadTasksList();});
+  document.getElementById('tp').addEventListener('click',()=>{taskDate=new Date(+taskDate-86400000);updTDL();loadTasksList();});
   document.getElementById('tn').addEventListener('click',()=>{taskDate=new Date(+taskDate+86400000);updTDL();loadTasksList();});
   document.getElementById('tt').addEventListener('click',()=>{taskDate=new Date(Date.now()+5.5*60*60*1000);updTDL();loadTasksList();});
   const tasksAddBtn=document.getElementById('tasks-add-btn');if(tasksAddBtn)tasksAddBtn.addEventListener('click',()=>openAddTask());
+  // Wire ONE persistent click listener on page-tasks (survives tasks-list rebuilds)
+  wireCards(el, fmt(taskDate));
   updTDL();loadTasksList();
 }
 function updTDL(){const e=document.getElementById('tdl');if(e)e.textContent=fmtDisp(fmt(taskDate));}
@@ -664,7 +665,7 @@ async function loadTasksList(){
   if(pending.length){h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
   if(done.length){h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Done ('+done.length+')</span></div>';done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
   el.innerHTML=h;
-  wireCards(el,ds);
+  // No wireCards here — listener is on page-tasks (persistent parent)
 }
 
 function taskCard(t,isDone,comp,ds){
