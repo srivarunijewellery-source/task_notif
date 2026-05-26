@@ -825,7 +825,8 @@ function wireCards(container,ds){
     if(header&&!e.target.closest('button')&&!e.target.closest('[data-oc]')){
       e.preventDefault();
       const id=header.getAttribute('data-expand-id');
-      const d=document.getElementById('td-'+id);
+      // Scope to container to avoid duplicate IDs across hidden pages
+      const d=container.querySelector('#td-'+id);
       if(d){
         const open=d.style.display==='block';
         d.style.display=open?'none':'block';
@@ -1567,7 +1568,7 @@ async function addNotif(userId,message,type){await db.from('task_notifications')
 
 // ADMIN
 // Admin sub-tab state
-let adminTab='approvals';
+let adminTab='approvals'; // valid: approvals, managers, staff, policy
 function switchAdminTab(name){
   adminTab=name;
   renderAdmin();
@@ -1653,7 +1654,6 @@ async function renderAdmin(){
     {key:'approvals',label:'Approvals',badge:(pending||[]).length},
     {key:'managers',label:'Managers'},
     {key:'staff',label:'Staff'},
-    {key:'reviews',label:'Reviews'},
     {key:'policy',label:'Policy'},
   ];
   let h='<div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px">'
@@ -1718,11 +1718,6 @@ async function renderAdmin(){
           +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button></div>';
       }).join('');
     }
-  }
-
-  // ── REVIEWS ──
-  else if(adminTab==='reviews'){
-    h+=await renderAdminReviews();
   }
 
   // ── POLICY ──
