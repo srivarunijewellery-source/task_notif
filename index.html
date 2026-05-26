@@ -799,17 +799,25 @@ function wireCards(container,ds){
     // Expand/collapse: click anywhere on task-top (but not action buttons)
     const expandHeader=e.target.closest('[data-task-expand]');
     if(expandHeader){
-      // Only block if clicking a real interactive button (not badge/span/div)
       const clickedBtn=e.target.closest('button');
       if(!clickedBtn){
         const id=expandHeader.getAttribute('data-task-expand');
-        // Use getElementById for reliable lookup regardless of DOM structure
         const detail=document.getElementById('td-'+id);
+        console.log('EXPAND clicked id=',id,'detail=',detail,'target=',e.target.tagName,e.target.className);
         if(detail){
           const open=detail.style.display==='block';
           detail.style.display=open?'none':'block';
           const arrow=expandHeader.querySelector('.task-expand-arrow');
           if(arrow)arrow.textContent=open?'▾':'▴';
+        } else {
+          console.error('EXPAND: detail element td-'+id+' NOT FOUND in DOM');
+          // Fallback: find by class near the header
+          const fallback=expandHeader.nextElementSibling;
+          console.log('fallback sibling=',fallback?.className);
+          if(fallback&&fallback.classList.contains('task-detail')){
+            const open=fallback.style.display==='block';
+            fallback.style.display=open?'none':'block';
+          }
         }
         return;
       }
@@ -1835,17 +1843,18 @@ async function _renderMgrReviewBody(year,month,myId,sd,es,el){
   // Use ALL completions (rated + unrated) to determine what was done
   const allCompIds=new Set((allComps||[]).map(c=>c.task_id)); // all completions this month
   const today=istToday();
+  console.log('MISSED DEBUG: myAllTasks=',myAllTasks?.length,'allCompIds size=',allCompIds.size,'allComps=',allComps?.length,'recurTasks=',recurTasks?.length,'onetimeTasks=',onetimeTasks?.length);
   (myAllTasks||[]).forEach(t=>{
-    if(allCompIds.has(t.id))return; // has at least one completion this month — not missed
+    const done=allCompIds.has(t.id);
+    console.log('  task:',t.title,'type:',t.task_type,'done:',done,'id:',t.id);
+    if(done)return;
     if(t.task_type==='onetime'){
-      // One-time: missed only if scheduled this month and already past due
-      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today)incomplete++;
+      if(t.scheduled_date&&t.scheduled_date>=sd&&t.scheduled_date<=es&&t.scheduled_date<today){incomplete++;console.log('  -> MISSED (onetime)');}
     } else {
-      // Recurring: missed if never completed even once this month
-      // Only count if the task should have appeared (at least one day in the period has passed)
-      if(sd<=today)incomplete++;
+      if(sd<=today){incomplete++;console.log('  -> MISSED (recurring)');}
     }
   });
+  console.log('MISSED RESULT: onTime=',onTime,'delayed=',delayed,'incomplete=',incomplete);
 
   // Rating buckets
   const buckets={1:[],2:[],3:[],4:[],5:[]};
