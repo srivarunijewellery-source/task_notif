@@ -756,7 +756,7 @@ function taskCard(t,isDone,comp,ds){
   // ── Assemble full card ──
   return ''
     +'<div class="task-item '+cls+'" id="ti-'+t.id+'">'
-      +'<div class="task-top" data-task-expand="'+t.id+'" style="cursor:pointer;user-select:none">'
+      +'<div class="task-top" style="cursor:pointer;user-select:none" onclick="toggleTaskDetail(this)" data-id="'+t.id+'">'
         +prDot
         +'<div class="task-body" style="padding-left:8px">'
           +'<div class="task-title'+(isDone?' done':'')+'">' +esc(t.title)+'</div>'
@@ -796,22 +796,20 @@ function taskShowsOnDate(t,dateStr){
   return true; // fallback: always show
 }
 
+function toggleTaskDetail(header){
+  var id=header.dataset.id;
+  var d=document.getElementById('td-'+id);
+  if(!d)return;
+  var open=d.style.display==='block';
+  d.style.display=open?'none':'block';
+  var a=header.querySelector('.task-expand-arrow');
+  if(a)a.textContent=open?'▾':'▴';
+}
 function wireCards(container,ds){
   // Remove previous listener before attaching — prevents stacking on re-renders
   if(container._wireHandler)container.removeEventListener('click',container._wireHandler);
   container._wireHandler=async function(e){
-    const expandHeader=e.target.closest('[data-task-expand]');
-    if(expandHeader&&!e.target.closest('button')){
-      const id=expandHeader.getAttribute('data-task-expand');
-      const detail=document.getElementById('td-'+id);
-      if(detail){
-        const open=detail.style.display==='block';
-        detail.style.display=open?'none':'block';
-        const arrow=expandHeader.querySelector('.task-expand-arrow');
-        if(arrow)arrow.textContent=open?'▾':'▴';
-      }
-      return;
-    }
+    // Expand is handled by inline onclick on task-top
     const ocEl=e.target.closest('[data-oc]');
     if(ocEl){const [id,title]=ocEl.getAttribute('data-oc').split('|');openComplete(id,title);return;}
     const delEl=e.target.closest('[data-del]');
