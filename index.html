@@ -645,18 +645,24 @@ function renderTasks(){
 }
 function updTDL(){const e=document.getElementById('tdl');if(e)e.textContent=fmtDisp(fmt(taskDate));}
 async function loadTasksList(){
-  const el=document.getElementById('tasks-list');
+  // Snapshot the date before async fetch — user may navigate while fetching
+  const ds=fmt(taskDate),isAdmin=currentProfile.role==='admin';
+  let el=document.getElementById('tasks-list');
   if(!el)return;
   el.innerHTML='<div class="loading-overlay"><div class="spinner-dark"></div></div>';
-  const ds=fmt(taskDate),isAdmin=currentProfile.role==='admin';
   const {data}=await db.from('tasks').select('*,task_completions(*),profiles:assigned_to(name,id)').order('priority',{ascending:false});
+  // Re-fetch el after async — renderTasks() may have replaced tasks-list while we waited
+  el=document.getElementById('tasks-list');
+  if(!el)return;
+  // Also verify the date hasn't changed while we were fetching
+  if(fmt(taskDate)!==ds){loadTasksList();return;}
   const tasks=(data||[]).filter(t=>taskShowsOnDate(t,ds)).filter(t=>isAdmin||t.assigned_to===currentUser.id||t.created_by===currentUser.id);
   const pending=tasks.filter(t=>!(t.task_completions||[]).some(c=>c.completed_date===ds));
   const done=tasks.filter(t=>(t.task_completions||[]).some(c=>c.completed_date===ds));
   if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon" style="font-family:var(--mono);font-size:32px;color:var(--border2)">—</div><div class="empty-text">No tasks for this day.</div></div>';return;}
   let h='';
-  if(pending.length){h+=`<div class="section-header"><span class="section-title">Pending (${pending.length})</span></div>`;pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
-  if(done.length){h+=`<div class="section-header" style="margin-top:14px"><span class="section-title">Done (${done.length})</span></div>`;done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
+  if(pending.length){h+='<div class="section-header"><span class="section-title">Pending ('+pending.length+')</span></div>';pending.forEach(t=>{h+=taskCard(t,false,null,ds);});}
+  if(done.length){h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Done ('+done.length+')</span></div>';done.forEach(t=>{const c=(t.task_completions||[]).find(x=>x.completed_date===ds);h+=taskCard(t,true,c,ds);});}
   el.innerHTML=h;
   wireCards(el,ds);
 }
