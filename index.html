@@ -1688,10 +1688,12 @@ async function renderAdmin(){
 
   // Sub-tab bar (always shown)
   const {data:pending}=await db.from('profiles').select('*').eq('status','pending');
+  const {count:unratedCount}=await db.from('task_completions').select('id',{count:'exact',head:true}).is('rating',null);
   const subTabs=[
     {key:'approvals',label:'Approvals',badge:(pending||[]).length},
     {key:'managers',label:'Managers'},
     {key:'staff',label:'Staff'},
+    {key:'reviews',label:'Reviews',badge:unratedCount||0},
     {key:'policy',label:'Policy'},
   ];
   let h='<div style="display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px">'
@@ -1756,6 +1758,11 @@ async function renderAdmin(){
           +'<button class="btn btn-danger btn-xs" data-rmstaff="'+s.id+'">Remove</button></div>';
       }).join('');
     }
+  }
+
+  // ── REVIEWS ──
+  else if(adminTab==='reviews'){
+    h+=await renderAdminReviews();
   }
 
   // ── POLICY ──
