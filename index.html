@@ -1125,7 +1125,7 @@ async function loadAttList(){
   } else if(isPast&&!isAdmin){
     h+='<div style="padding:10px 14px;background:var(--gold-light);border:1px solid rgba(232,160,32,0.25);border-radius:var(--radius-sm);font-size:13px;color:var(--gold);font-weight:500;margin-bottom:12px;text-align:center">Viewing past attendance — edit not allowed</div>';
   }
-  if(canEdit)h+='<div style="margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">Mark All Present</button></div>';
+  if(canEdit)h+='<div style="display:flex;gap:8px;margin-bottom:11px"><button class="btn btn-success btn-sm" id="mark-all-btn">Mark All Present</button><button class="btn btn-primary btn-sm" id="att-save-btn" disabled style="opacity:0.5">Save Attendance</button></div>';
   h+=staff.map(s=>{
     const st=am[s.id]||null;
     const av=st==='P'?'background:var(--accent-light);color:var(--accent)':st==='A'?'background:var(--red-light);color:var(--red)':st==='H'?'background:var(--gold-light);color:var(--gold)':'';
@@ -1150,17 +1150,54 @@ async function loadAttList(){
     </div>
   </div>`;
   el.innerHTML=h;
-  document.getElementById('mark-all-btn').addEventListener('click',async()=>{
-    await db.from('attendance').upsert(staff.map(s=>({staff_id:s.id,date:ds,status:'P',marked_by:currentUser.id})),{onConflict:'staff_id,date'});
-    toast('All marked present!','success');loadAttList();if(ds===istToday())renderDashboard();
+  document.getElementById('mark-all-btn').addEventListener('click',()=>{
+    // Mark all in local state only
+    staff.forEach(s=>{pendingAtt[s.id]='P';});
+    el.querySelectorAll('.att-btn').forEach(b=>{
+      const [sid,status]=b.getAttribute('data-att').split('|');
+      b.classList.remove('active-present','active-absent','active-halfday');
+      if(status==='P')b.classList.add('active-present');
+    });
+    el.querySelectorAll('.staff-avatar').forEach(av=>{av.style.background='var(--accent-light)';av.style.color='var(--accent)';});
+    const saveBtn=document.getElementById('att-save-btn');
+    if(saveBtn){saveBtn.disabled=false;saveBtn.style.opacity='1';}
+    toast('All marked present — tap Save to confirm','info');
   });
+  // Local state for unsaved changes: {staffId: status}
+  const pendingAtt={};
   el.querySelectorAll('[data-att]').forEach(btn=>{
-    btn.addEventListener('click',async()=>{
+    btn.addEventListener('click',()=>{
       const [sid,status,date]=btn.getAttribute('data-att').split('|');
-      await db.from('attendance').upsert({staff_id:sid,date,status,marked_by:currentUser.id},{onConflict:'staff_id,date'});
-      loadAttList();if(date===istToday())renderDashboard();
+      // Update local state
+      pendingAtt[sid]=status;
+      // Update button highlight in UI without reloading
+      const row=btn.closest('.staff-row');
+      if(row){
+        row.querySelectorAll('.att-btn').forEach(b=>b.classList.remove('active-present','active-absent','active-halfday'));
+        btn.classList.add(status==='P'?'active-present':status==='A'?'active-absent':'active-halfday');
+        const avatar=row.querySelector('.staff-avatar');
+        if(avatar){avatar.style.background=status==='P'?'var(--accent-light)':status==='A'?'var(--red-light)':'var(--gold-light)';
+          avatar.style.color=status==='P'?'var(--accent)':status==='A'?'var(--red)':'var(--gold)';}
+      }
+      // Show/enable save button
+      const saveBtn=document.getElementById('att-save-btn');
+      if(saveBtn){saveBtn.disabled=false;saveBtn.style.opacity='1';}
     });
   });
+  // Save button
+  const saveBtn=document.getElementById('att-save-btn');
+  if(saveBtn){
+    saveBtn.addEventListener('click',async()=>{
+      if(!Object.keys(pendingAtt).length){toast('No changes to save','info');return;}
+      saveBtn.disabled=true;saveBtn.textContent='Saving...';
+      const upserts=Object.entries(pendingAtt).map(([sid,status])=>({staff_id:sid,date:ds,status,marked_by:currentUser.id}));
+      const {error}=await db.from('attendance').upsert(upserts,{onConflict:'staff_id,date'});
+      if(error){toast(error.message,'error');saveBtn.disabled=false;saveBtn.textContent='Save Attendance';return;}
+      toast('Attendance saved!','success');
+      if(ds===istToday())renderDashboard();
+      loadAttList(); // reload to show fresh state
+    });
+  }
 }
 
 // SUMMARY
@@ -2205,8 +2242,15 @@ async function submitRating(){
   }
   toast('Rating saved!','success');
   closeModal('rate-modal');
-  loadTasksList();
-  renderDashboard();
+  // Refresh the admin reviews tab if currently active
+  if(currentProfile.role==='admin'&&adminTab==='reviews'){
+    renderAdmin();
+  }
+  // Also refresh tasks/dashboard if visible
+  const tasksPage=document.getElementById('page-tasks');
+  const dashPage=document.getElementById('page-dashboard');
+  if(tasksPage&&tasksPage.classList.contains('active'))loadTasksList();
+  if(dashPage&&dashPage.classList.contains('active'))renderDashboard();
 }
 
 // ========================
