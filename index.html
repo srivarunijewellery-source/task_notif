@@ -306,6 +306,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
     <div class="field"><label>Priority</label>
       <select id="new-task-priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select>
     </div>
+    <div class="field">
+      <label>Reference Images <span style="font-weight:400;color:var(--text3)">(optional, up to 3)</span></label>
+      <div id="ref-img-previews" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <label class="btn btn-ghost btn-sm" id="ref-img-label" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+        <span>📎 Add image</span>
+        <input type="file" id="ref-img-input" accept="image/*" multiple style="display:none">
+      </label>
+    </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-ghost" style="flex:1" id="add-task-cancel-btn">Cancel</button>
       <button class="btn btn-primary" style="flex:1" id="add-task-submit-btn">Add Task</button>
@@ -784,6 +792,7 @@ function taskCard(t,isDone,comp,ds){
       +'</div>'
       +'<div class="task-detail" id="td-'+t.id+'" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'
         +(t.description?'<div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:10px">'+esc(t.description)+'</div>':'')
+        +renderRefImages(t.reference_images,'Reference')
         +detailGrid
         +actions
       +'</div>'
@@ -811,6 +820,21 @@ function taskShowsOnDate(t,dateStr){
 }
 
 var _lastToggleTime=0;
+function renderRefImages(refImages,label){
+  // Parse reference images and return an HTML strip
+  if(!refImages)return'';
+  let urls=refImages;
+  if(typeof urls==='string'){try{urls=JSON.parse(urls);}catch(e){return'';}}
+  if(!urls||!urls.length)return'';
+  return'<div style="margin-bottom:10px">'
+    +(label?'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">'+label+'</div>':'')
+    +'<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px">'
+    +urls.map(u=>'<a href="'+u+'" target="_blank" rel="noopener" style="flex-shrink:0">'
+      +'<img src="'+u+'" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1.5px solid var(--border)">'
+      +'</a>').join('')
+    +'</div></div>';
+}
+
 function toggleTaskDetail(header,ev){
   // Prevent double-fire from touch+click on mobile
   if(ev){ev.preventDefault();ev.stopPropagation();}
@@ -871,10 +895,15 @@ function wireCards(container,ds){
 }
 
 
-function openComplete(id,title){
+async function openComplete(id,title){
   completingTaskId=id;photoDataURL=null;
-  // Use textContent (never innerHTML) for user data - safe from XSS
   document.getElementById('complete-task-title').textContent=title;
+  // Load reference images for this task
+  const refEl=document.getElementById('complete-ref-images');
+  if(refEl){
+    const {data:t}=await db.from('tasks').select('reference_images').eq('id',id).single();
+    refEl.innerHTML=t?.reference_images?renderRefImages(t.reference_images,'Reference'):'';
+  }
   document.getElementById('complete-note').value='';
   document.getElementById('photo-preview-wrap').style.display='none';
   document.getElementById('photo-drop').style.display='';
@@ -1033,7 +1062,26 @@ async function submitNewTask(){
   const dbType=type==='onetime'?'onetime':'recurring';
   setBtnLoading('add-task-submit-btn',true);
   const recurStartDate=document.getElementById('recur-start-date')?.value||null;
-  const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:dbType,recur_subtype:type,recur_days:recurDays?JSON.stringify(recurDays):null,
+
+  // Upload reference images that are still dataURLs (new ones)
+  let finalRefUrls=[];
+  for(const url of refImgDataURLs){
+    if(url.startsWith('data:')){
+      // Upload to Supabase storage
+      try{
+        const blob=dataURLtoBlob(url);
+        const fname='ref-'+Date.now()+'-'+Math.random().toString(36).slice(2)+'.jpg';
+        const {data:up,error:ue}=await db.storage.from('task-references').upload(fname,blob,{contentType:'image/jpeg',upsert:true});
+        if(!ue){
+          const {data:pub}=db.storage.from('task-references').getPublicUrl(fname);
+          finalRefUrls.push(pub.publicUrl);
+        }
+      }catch(e){console.warn('Ref img upload failed',e);}
+    } else {
+      finalRefUrls.push(url); // already uploaded URL, keep as-is
+    }
+  }
+  const payload={title,description:desc||null,assigned_to:finalAssignee,task_type:dbType,recur_subtype:type,recur_days:recurDays?JSON.stringify(recurDays):null,reference_images:finalRefUrls.length?JSON.stringify(finalRefUrls):null,
     scheduled_date:type==='onetime'?date:(recurStartDate||null),priority,category_id:catId};
   let error;
   if(isEdit){
@@ -2161,7 +2209,7 @@ async function openRateModal(compId, managerName, date, currentRating, currentCo
   openModal('rate-modal');
   // Fetch full completion + task details
   const {data:c}=await db.from('task_completions')
-    .select('*,profiles:completed_by(name),tasks(title,description,category_id)')
+    .select('*,profiles:completed_by(name),tasks(title,description,category_id,reference_images)')
     .eq('id',compId).single();
   if(!c){detailsEl.innerHTML='';return;}
   const cat=c.tasks?.category_id?taskCategories.find(x=>x.id===c.tasks.category_id):null;
@@ -2184,9 +2232,13 @@ async function openRateModal(compId, managerName, date, currentRating, currentCo
       +'</div>';
   }
   // Photo
+  // Reference images (from task)
+  if(c.tasks?.reference_images){
+    h+=renderRefImages(c.tasks.reference_images,'Reference');
+  }
   if(c.photo_url){
     h+='<div style="margin-bottom:10px">'
-      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">Photo</div>'
+      +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">Submitted Photo</div>'
       +'<a href="'+c.photo_url+'" target="_blank" rel="noopener" style="display:block">'
       +'<img src="'+c.photo_url+'" style="max-width:100%;border-radius:9px;display:block">'
       +'</a>'
@@ -2428,6 +2480,43 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(chip)chip.classList.toggle('active');
   });
   document.getElementById('manage-cats-btn').addEventListener('click',()=>{renderCatsList();openModal('cats-modal');});
+
+  // ── Reference image upload wiring ──
+  let refImgDataURLs=[]; // up to 3 data URLs
+  const refInput=document.getElementById('ref-img-input');
+  const refPreviews=document.getElementById('ref-img-previews');
+  const refLabel=document.getElementById('ref-img-label');
+
+  function renderRefPreviews(){
+    refPreviews.innerHTML=refImgDataURLs.map((url,i)=>
+      '<div class="ref-img-wrap">'
+      +'<a href="'+url+'" target="_blank"><img src="'+url+'" class="ref-img-thumb"></a>'
+      +'<button class="ref-img-remove" data-ref-idx="'+i+'">×</button>'
+      +'</div>'
+    ).join('');
+    refPreviews.querySelectorAll('[data-ref-idx]').forEach(btn=>{
+      btn.addEventListener('click',e=>{
+        e.stopPropagation();
+        refImgDataURLs.splice(parseInt(btn.dataset.refIdx),1);
+        renderRefPreviews();
+        if(refImgDataURLs.length<3)refLabel.style.display='';
+      });
+    });
+    refLabel.style.display=refImgDataURLs.length>=3?'none':'';
+  }
+
+  refInput.addEventListener('change',async()=>{
+    const files=Array.from(refInput.files).slice(0,3-refImgDataURLs.length);
+    for(const file of files){
+      await new Promise(res=>{
+        const reader=new FileReader();
+        reader.onload=ev=>{refImgDataURLs.push(ev.target.result);res();};
+        reader.readAsDataURL(file);
+      });
+    }
+    refInput.value='';
+    renderRefPreviews();
+  });
   document.getElementById('cats-close-btn').addEventListener('click',()=>{closeModal('cats-modal');populateCategorySelect('new-task-category',document.getElementById('new-task-category').value);});
   document.getElementById('add-cat-btn').addEventListener('click',addCategory);
   document.getElementById('new-cat-input').addEventListener('keydown',e=>{if(e.key==='Enter')addCategory();});
