@@ -1758,13 +1758,21 @@ async function renderAdmin(){
   // ── MANAGERS ──
   else if(adminTab==='managers'){
     const {data:active}=await db.from('profiles').select('*').eq('status','active').eq('role','manager').order('name');
-    h+='<div class="section-header"><span class="section-title">Managers ('+(active||[]).length+')</span></div>';
+    const {data:blocked}=await db.from('profiles').select('*').eq('status','blocked').eq('role','manager').order('name');
+    h+='<div class="section-header"><span class="section-title">Active Managers ('+(active||[]).length+')</span></div>';
     if(!active||!active.length){
       h+='<div class="empty" style="padding:24px"><div style="font-size:28px;text-align:center;color:var(--border2)">○</div><div style="text-align:center;font-size:13px;color:var(--text3);padding:6px 0">No active managers yet.</div></div>';
     } else {
       active.forEach(p=>{
         h+='<div class="card"><div class="card-header"><div><div class="card-title">'+esc(p.name||'—')+'</div><div class="card-sub">'+esc(p.email)+'</div></div><span class="badge badge-done">Active</span></div>'
           +'<button class="btn btn-danger btn-xs" data-block="'+p.id+'">Block</button></div>';
+      });
+    }
+    if(blocked&&blocked.length){
+      h+='<div class="section-header" style="margin-top:14px"><span class="section-title">Blocked ('+blocked.length+')</span></div>';
+      blocked.forEach(p=>{
+        h+='<div class="card"><div class="card-header"><div><div class="card-title">'+esc(p.name||'—')+'</div><div class="card-sub">'+esc(p.email)+'</div></div><span class="badge badge-urgent">Blocked</span></div>'
+          +'<button class="btn btn-success btn-xs" data-unblock="'+p.id+'">Unblock</button></div>';
       });
     }
   }
@@ -1825,9 +1833,10 @@ async function renderAdmin(){
   el.querySelectorAll('[data-approve]').forEach(b=>{b.addEventListener('click',async()=>{const[id,role]=b.getAttribute('data-approve').split('|');await db.from('profiles').update({status:'active',role:role||'manager'}).eq('id',id);await addNotif(id,'Your account is approved! You can now sign in.','approved');toast('Approved!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-reject]').forEach(b=>{b.addEventListener('click',async()=>{await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-reject'));toast('Rejected','info');renderAdmin();});});
   el.querySelectorAll('[data-block]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Block this manager? This also blocks them in the reseller portal.'))return;await db.from('profiles').update({status:'blocked'}).eq('id',b.getAttribute('data-block'));toast('Blocked','info');await loadManagers();renderAdmin();});});
+  el.querySelectorAll('[data-unblock]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Unblock this manager?'))return;await db.from('profiles').update({status:'active',role:'manager'}).eq('id',b.getAttribute('data-unblock'));toast('Unblocked!','success');await loadManagers();renderAdmin();});});
   el.querySelectorAll('[data-rmstaff]').forEach(b=>{b.addEventListener('click',async()=>{if(!confirm('Remove this staff member?'))return;const sid=b.getAttribute('data-rmstaff');b.disabled=true;const{error}=await db.from('staff').update({active:false}).eq('id',sid);if(error){toast(error.message,'error');b.disabled=false;return;}toast('Staff removed','info');staff=staff.filter(x=>x.id!==sid);await renderAdmin();});});
   el.querySelectorAll('.staff-weekoff-sel').forEach(sel=>{sel.addEventListener('change',async()=>{const sid=sel.dataset.sid;const val=sel.value;sel.disabled=true;const{error}=await db.from('staff').update({weekoff_allowance:val}).eq('id',sid);sel.disabled=false;if(error){toast('Failed: '+error.message,'error');renderAdmin();return;}const s=staff.find(x=>x.id===sid);if(s)s.weekoff_allowance=val;toast('Day off updated','success');});});
-  el.querySelectorAll('[data-rerate]').forEach(b=>{b.addEventListener('click',()=>{openRateModal(b.getAttribute('data-rerate'),b.getAttribute('data-name'),b.getAttribute('data-date'),parseInt(b.getAttribute('data-rating')),b.getAttribute('data-comment'));});});
+  el.querySelectorAll('[data-rerate]').forEach(b=>{b.addEventListener('click',(e)=>{if(e.target.closest('button'))return;openRateModal(b.getAttribute('data-rerate'),b.getAttribute('data-name'),b.getAttribute('data-date'),parseInt(b.getAttribute('data-rating')||'0'),b.getAttribute('data-comment')||'');});});
   const oasBtn=document.getElementById('open-add-staff');
   if(oasBtn)oasBtn.addEventListener('click',()=>{document.getElementById('new-staff-name').value='';document.getElementById('new-staff-role').value='';openModal('add-staff-modal');});
   const savePolicyBtn=document.getElementById('save-att-policy-btn');
